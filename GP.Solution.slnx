@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="GP.APIs/GP.APIs.csproj" />
+  <Project Path="GP.Core/GP.Core.csproj" />
+  <Project Path="GP.Repository/GP.Repository.csproj" />
+  <Project Path="GP.Service/GP.Service.csproj" />
+</Solution>

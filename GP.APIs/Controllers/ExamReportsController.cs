@@ -68,7 +68,7 @@ namespace GP.APIs.Controllers
                     report.GeneratedAt,
                     report.ReviewedAt,
                     StudentName = studentUser != null
-                        ? $"{studentUser.FirstName} {studentUser.LastName}"
+                        ? $"{studentUser.FullName}"
                         : "Unknown",
                     StudentUniversityID = student?.StudentUniversityID,
                     ExamSubject = exam?.Subject,
@@ -119,7 +119,7 @@ namespace GP.APIs.Controllers
                 report.GeneratedAt,
                 report.ReviewedAt,
                 StudentName = studentUser != null
-                    ? $"{studentUser.FirstName} {studentUser.LastName}"
+                    ? $"{studentUser.FullName}"
                     : "Unknown",
                 StudentUniversityID = student?.StudentUniversityID,
                 SuspiciousEvents = suspiciousEvents.Select(e => new
@@ -215,5 +215,113 @@ namespace GP.APIs.Controllers
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 fileName);
         }
+
+        //[HttpGet("exam/{examId}/export")]
+        //[Authorize(Roles = "Instructor")]
+        //public async Task<IActionResult> ExportExamReports(int examId)
+        //{
+        //    var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(examId);
+        //    if (exam == null) return NotFound("Exam not found");
+
+        //    var sessions = await _unitOfWork.Repository<ExamSession>()
+        //        .FindAsync(s => s.ExamId == examId);
+
+        //    var result = new List<object>();
+
+        //    foreach (var session in sessions)
+        //    {
+        //        var report = await _unitOfWork.Repository<ExamReport>()
+        //            .FindOneAsync(r => r.SessionId == session.Id);
+
+        //        var student = await _unitOfWork.Repository<Student>()
+        //            .GetByIdAsync(session.StudentId);
+
+        //        var studentUser = student != null
+        //            ? await _unitOfWork.Repository<User>().GetByIdAsync(student.UserId)
+        //            : null;
+
+        //        result.Add(new
+        //        {
+        //            StudentName = studentUser?.FullName,
+        //            StudentUniversityID = student?.StudentUniversityID,
+        //            ExamCode = exam.Code,
+        //            ExamSubject = exam.Subject,
+
+        //            ScorePercent = report?.ScorePercent,
+        //            CorrectAnswers = report?.CorrectAnswers,
+        //            TotalQuestions = report?.TotalQuestions,
+        //            RiskLevel = report?.RiskLevel,
+        //            FinalRiskScore = report?.FinalRiskScore,
+        //            Status = report?.Status
+        //        });
+        //    }
+
+        //    var fileBytes = await _excelService.GenerateExamReportsAsync(result, exam);
+
+        //    var fileName = $"ExamReport_{exam.Code}_{DateTime.UtcNow:yyyyMMdd}.xlsx";
+
+        //    return File(fileBytes,
+        //        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        //        fileName);
+        //}
+
+
+        [HttpGet("exam/{examId}/export")]
+        [Authorize(Roles = "Instructor")]
+        public async Task<IActionResult> ExportExamReports(int examId)
+        {
+            var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(examId);
+            if (exam == null) return NotFound("Exam not found");
+
+            var sessions = await _unitOfWork.Repository<ExamSession>()
+                .FindAsync(s => s.ExamId == examId);
+
+            var result = new List<object>();
+
+            foreach (var session in sessions)
+            {
+                var report = await _unitOfWork.Repository<ExamReport>()
+                    .FindOneAsync(r => r.SessionId == session.Id);
+
+                if (report != null && report.Status == "Pending")
+                {
+                    report.Status = "Completed"; // تحويل الحالة تلقائياً عند التصدير
+                    _unitOfWork.Repository<ExamReport>().Update(report);
+                }
+
+                var student = await _unitOfWork.Repository<Student>()
+                    .GetByIdAsync(session.StudentId);
+
+                var studentUser = student != null
+                    ? await _unitOfWork.Repository<User>().GetByIdAsync(student.UserId)
+                    : null;
+
+                result.Add(new
+                {
+                    StudentName = studentUser?.FullName,
+                    StudentUniversityID = student?.StudentUniversityID,
+                    ExamCode = exam.Code,
+                    ExamSubject = exam.Subject,
+
+                    ScorePercent = report?.ScorePercent,
+                    CorrectAnswers = report?.CorrectAnswers,
+                    TotalQuestions = report?.TotalQuestions,
+                    RiskLevel = report?.RiskLevel,
+                    FinalRiskScore = report?.FinalRiskScore,
+                    Notes = report != null ? $"Leaving Exam: {report.Notes?.Replace("Leaving Exam Counter: ", "")}" : "No Report",
+                    Status = report?.Status,
+
+                });
+            }
+            await _unitOfWork.CompleteAsync();
+
+            var fileBytes = await _excelService.GenerateExamReportsAsync(result, exam);
+            var fileName = $"ExamReport_{exam.Code}_{DateTime.UtcNow:yyyyMMdd}.xlsx";
+
+            return File(fileBytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                fileName);
+        }
+
     }
 }

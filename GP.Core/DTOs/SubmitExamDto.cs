@@ -9,5 +9,6 @@ namespace GP.Core.DTOs
     public class SubmitExamDto
     {
         public List<SubmitAnswerDto> Answers { get; set; }
+        public int LeavingExam {  get; set; }
     }
 }

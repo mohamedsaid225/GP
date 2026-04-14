@@ -8,6 +8,7 @@ namespace GP.Core.DTOs
 {
     public class SubmitAnswerDto
     {
+        public int SessionId { get; set; }
         public int QuestionId { get; set; }
         public string SelectedAnswer { get; set; }
     }

@@ -15,5 +15,6 @@ namespace GP.Core.DTOs
         public string College { get; set; }
         public int Level { get; set; }
         public int DurationMinutes { get; set; }
+        public List<CreateQuestionDto> Questions { get; set; } = new List<CreateQuestionDto>();
     }
 }

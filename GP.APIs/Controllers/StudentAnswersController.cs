@@ -1,4 +1,5 @@
-﻿using GP.Core.Entities;
+﻿using GP.Core.DTOs;
+using GP.Core.Entities;
 using GP.Core.Interfaces;
 using GP.Core.Repositories.Contract;
 using Microsoft.AspNetCore.Mvc;
@@ -31,12 +32,31 @@ namespace GP.APIs.Controllers
             return Ok(answer);
         }
 
+        //[HttpPost]
+        //public async Task<IActionResult> Create(StudentAnswer answer)
+        //{
+        //    await _unitOfWork.Repository<StudentAnswer>().AddAsync(answer);
+        //    await _unitOfWork.CompleteAsync();
+        //    return CreatedAtAction(nameof(GetById), new { id = answer.Id }, answer);
+        //}
+
         [HttpPost]
-        public async Task<IActionResult> Create(StudentAnswer answer)
+        public async Task<IActionResult> Create(SubmitAnswerDto dto)
         {
+            var answer = new StudentAnswer
+            {
+                SessionId = dto.SessionId,
+                QuestionId = dto.QuestionId,
+                SelectedAnswer = dto.SelectedAnswer,
+                IsCorrect = false,
+                AnsweredAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            };
+
             await _unitOfWork.Repository<StudentAnswer>().AddAsync(answer);
             await _unitOfWork.CompleteAsync();
-            return CreatedAtAction(nameof(GetById), new { id = answer.Id }, answer);
+
+            return Ok(new { answer.Id });
         }
 
         [HttpPut("{id}")]

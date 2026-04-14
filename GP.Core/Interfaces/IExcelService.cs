@@ -12,5 +12,8 @@ namespace GP.Core.Interfaces
         Task<byte[]> GenerateExamReportAsync(ExamReport report, ExamSession session,
             User studentUser, Student student, Exam exam,
             IEnumerable<SuspiciousEvent> events, IEnumerable<StudentAnswer> answers);
+        Task<byte[]> GenerateExamReportsAsync(List<object> data, Exam exam);
+
     }
 }
+

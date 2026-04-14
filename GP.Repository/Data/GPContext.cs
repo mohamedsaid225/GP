@@ -32,5 +32,7 @@ namespace GP.Repository.Data
         public DbSet<ExamReport> ExamReports { get; set; }
         public DbSet<SuspiciousEvent> SuspiciousEvents { get; set; }
         public DbSet<AuditLog> AuditLogs { get; set; }
+        public DbSet<Comment> Comments { get; set; }
+
     }
 }

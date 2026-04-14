@@ -18,6 +18,9 @@ namespace GP.Repository.Data.Config
             builder.Property(i => i.UserId)
                    .IsRequired();
 
+            builder.Property(i => i.InstructorCode)
+                   .HasMaxLength(10);
+
             builder.Property(i => i.Department)
                    .IsRequired()
                    .HasMaxLength(200);

@@ -1,4 +1,5 @@
-﻿using GP.Core.Entities;
+﻿using GP.Core.DTOs;
+using GP.Core.Entities;
 using GP.Core.Interfaces;
 using GP.Core.Repositories.Contract;
 using Microsoft.AspNetCore.Mvc;
@@ -16,11 +17,29 @@ namespace GP.APIs.Controllers
             _unitOfWork = unitOfWork;
         }
 
+        //[HttpGet]
+        //public async Task<IActionResult> GetAll()
+        //{
+        //    var users = await _unitOfWork.Repository<User>().GetAllAsync();
+        //    return Ok(users);
+        //}
+
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var users = await _unitOfWork.Repository<User>().GetAllAsync();
-            return Ok(users);
+            var users = await _unitOfWork.Repository<User>()
+                .GetAllAsync(u => u.Instructor);
+            
+            var userDtos = users.Select(user => new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                FullName = user.FullName,
+                Role = user.Role,
+                InstructorCode = user.Instructor?.InstructorCode
+            }).ToList();
+
+            return Ok(userDtos);
         }
 
         [HttpGet("{id}")]
@@ -56,6 +75,38 @@ namespace GP.APIs.Controllers
             _unitOfWork.Repository<User>().Delete(user);
             await _unitOfWork.CompleteAsync();
             return NoContent();
+        }
+        [HttpGet("{id}/profile")]
+        public async Task<IActionResult> GetProfile(int id)
+        {
+            var user = await _unitOfWork.Repository<User>().GetByIdAsync(id);
+            if (user == null) return NotFound();
+
+            if (user.Role == "Instructor")
+            {
+                var instructor = await _unitOfWork.Repository<Instructor>()
+                    .FindOneAsync(i => i.UserId == id);
+
+                return Ok(new
+                {
+                    user.Id,
+                    user.FullName,
+                    user.Email,
+                    user.Role,
+                    instructor?.InstructorCode,
+                    instructor?.Department,
+                    instructor?.University,
+                    instructor?.College
+                });
+            }
+
+            return Ok(new
+            {
+                user.Id,
+                user.FullName,
+                user.Email,
+                user.Role
+            });
         }
     }
 }

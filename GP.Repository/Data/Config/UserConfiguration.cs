@@ -26,11 +26,7 @@ namespace GP.Repository.Data.Config
                    .IsRequired()
                    .HasMaxLength(256);
 
-            builder.Property(u => u.FirstName)
-                   .IsRequired()
-                   .HasMaxLength(100);
-
-            builder.Property(u => u.LastName)
+            builder.Property(u => u.FullName)
                    .IsRequired()
                    .HasMaxLength(100);
 

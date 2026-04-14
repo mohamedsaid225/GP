@@ -17,10 +17,42 @@ namespace GP.APIs.Controllers
         }
 
         [HttpGet]
+        //public async Task<IActionResult> GetAll()
+        //{
+        //    var instructors = await _unitOfWork
+        //        .Repository<Instructor>()
+        //        .GetAllAsync(i => i.User);
+        //    return Ok(instructors);
+        //}
         public async Task<IActionResult> GetAll()
         {
-            var instructors = await _unitOfWork.Repository<Instructor>().GetAllAsync();
-            return Ok(instructors);
+            var instructors = await _unitOfWork
+    .Repository<Instructor>()
+    .GetAllAsync(i => i.User, i => i.Exams);
+
+            var result = instructors.Select(i => new
+            {
+                i.Id,
+                i.InstructorCode,
+                i.Department,
+                i.University,
+                i.College,
+
+                Name = i.User.FullName,
+                Email = i.User.Email,
+
+                Exams = i.Exams.Select(e => new
+                {
+                    e.Id,
+                    e.Code,
+                    e.Subject,
+                    e.Level,
+                    e.DurationMinutes,
+                    e.Status
+                })
+            });
+
+            return Ok(result);
         }
 
         [HttpGet("{id}")]

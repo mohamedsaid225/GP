@@ -1,4 +1,5 @@
-﻿using GP.Core.Entities;
+﻿using GP.Core.DTOs;
+using GP.Core.Entities;
 using GP.Core.Interfaces;
 using GP.Core.Repositories.Contract;
 using Microsoft.AspNetCore.Mvc;

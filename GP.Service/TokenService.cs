@@ -26,7 +26,7 @@ namespace GP.Service
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.GivenName, user.FullName),
                 new Claim(ClaimTypes.Role, user.Role),
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
             };

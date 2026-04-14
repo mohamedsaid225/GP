@@ -75,7 +75,7 @@ namespace GP.Repository.Data.Config
             builder.HasMany(e => e.Sessions)
                    .WithOne(es => es.Exam)
                    .HasForeignKey(es => es.ExamId)
-                   .OnDelete(DeleteBehavior.Restrict);
+                   .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

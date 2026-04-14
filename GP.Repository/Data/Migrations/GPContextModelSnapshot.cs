@@ -739,7 +739,7 @@ namespace GP.Repository.Data.Migrations
                     b.HasOne("GP.Core.Entities.Exam", "Exam")
                         .WithMany("Sessions")
                         .HasForeignKey("ExamId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("GP.Core.Entities.Student", "Student")

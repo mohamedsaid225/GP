@@ -14,8 +14,8 @@ namespace GP.Core.Entities
         public DateTime StartTime { get; set; }
         public DateTime? EndTime { get; set; }
 
-        public decimal FinalRiskScore { get; set; }
-        public string RiskLevel { get; set; }
+        //public decimal FinalRiskScore { get; set; }
+        //public string RiskLevel { get; set; }
         public string Status { get; set; }
 
         public Exam Exam { get; set; }

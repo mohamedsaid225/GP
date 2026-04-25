@@ -21,14 +21,22 @@ namespace GP.Repository.Data.Config
             builder.Property(er => er.InstructorId)
                    .IsRequired();
 
-            builder.Property(er => er.FinalRiskScore)
-                   .HasColumnType("decimal(5,2)")
-                   .HasDefaultValue(0.00m);
+            //builder.Property(er => er.FinalRiskScore)
+            //       .HasColumnType("decimal(5,2)")
+            //       .HasDefaultValue(0.00m);
 
-            builder.Property(er => er.RiskLevel)
+            //builder.Property(er => er.RiskLevel)
+            //       .IsRequired()
+            //       .HasMaxLength(50)
+            //       .HasDefaultValue("Low");
+
+            builder.Property(er => er.CheatingCount)
                    .IsRequired()
-                   .HasMaxLength(50)
-                   .HasDefaultValue("Low");
+                   .HasDefaultValue(0);
+
+            builder.Property(er => er.ScreenshotsUrl)
+                   .IsRequired(false)
+                   .HasColumnType("nvarchar(max)");
 
             builder.Property(er => er.ScorePercent)
                    .HasColumnType("decimal(5,2)")

@@ -305,8 +305,6 @@
                         session.Status,
                         session.StartTime,
                         session.EndTime,
-                        session.FinalRiskScore,
-                        session.RiskLevel,
                         // بيانات الطالب
                         StudentInfo = new
                         {

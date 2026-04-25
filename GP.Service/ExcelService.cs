@@ -48,59 +48,15 @@ namespace GP.Service
             summary.Cell("A12").Value = "Score";
             summary.Cell("B12").Value = $"{report.ScorePercent}%";
 
-            summary.Cell("A14").Value = "Risk Score";
-            summary.Cell("B14").Value = report.FinalRiskScore;
-            summary.Cell("A14").Style.Font.Bold = true;
+            summary.Cell("A13").Value = "Status";
+            summary.Cell("B13").Value = report.Status;
 
-            summary.Cell("A15").Value = "Risk Level";
-            summary.Cell("B15").Value = report.RiskLevel;
-
-            // لون الـ Risk Level
-            var riskCell = summary.Cell("B15");
-            riskCell.Style.Font.Bold = true;
-            riskCell.Style.Font.FontColor = report.RiskLevel switch
-            {
-                "High" => XLColor.Red,
-                "Medium" => XLColor.Orange,
-                _ => XLColor.Green
-            };
-
-            summary.Cell("A17").Value = "Status";
-            summary.Cell("B17").Value = report.Status;
-
-            summary.Cell("A18").Value = "Notes";
-            summary.Cell("B18").Value = report.Notes ?? "No notes";
+            summary.Cell("A14").Value = "Notes";
+            summary.Cell("B14").Value = report.Notes ?? "No notes";
 
             summary.Columns().AdjustToContents();
 
-            // ─── Sheet 2: Suspicious Events ──────────────────
-            var eventsSheet = workbook.Worksheets.Add("Suspicious Events");
-
-            eventsSheet.Cell("A1").Value = "Event Type";
-            eventsSheet.Cell("B1").Value = "Source";
-            eventsSheet.Cell("C1").Value = "Risk Contribution";
-            eventsSheet.Cell("D1").Value = "Confidence";
-            eventsSheet.Cell("E1").Value = "Timestamp";
-            eventsSheet.Cell("F1").Value = "Frame URL";
-
-            var headerRow = eventsSheet.Range("A1:F1");
-            headerRow.Style.Font.Bold = true;
-            headerRow.Style.Fill.BackgroundColor = XLColor.LightBlue;
-
-            int row = 2;
-            foreach (var ev in events)
-            {
-                eventsSheet.Cell(row, 1).Value = ev.EventType.ToString();
-                eventsSheet.Cell(row, 2).Value = ev.Source;
-                eventsSheet.Cell(row, 3).Value = (double)ev.RiskScoreContribution;
-                eventsSheet.Cell(row, 4).Value = ev.Confidence;
-                eventsSheet.Cell(row, 5).Value = ev.Timestamp.ToString("yyyy-MM-dd HH:mm:ss");
-                eventsSheet.Cell(row, 6).Value = ev.FrameUrl ?? "N/A";
-                row++;
-            }
-
-            eventsSheet.Columns().AdjustToContents();
-
+            
             // ─── Sheet 3: Answers ────────────────────────────
             var answersSheet = workbook.Worksheets.Add("Answers");
 
@@ -242,24 +198,11 @@ namespace GP.Service
 
                 sheet.Cell(row, 6).Value = Convert.ToInt32(type.GetProperty("CorrectAnswers")?.GetValue(item) ?? 0);
                 sheet.Cell(row, 7).Value = Convert.ToInt32(type.GetProperty("TotalQuestions")?.GetValue(item) ?? 0);
-
-                var risk = type.GetProperty("RiskLevel")?.GetValue(item)?.ToString();
-                var riskCell = sheet.Cell(row, 8);
-                riskCell.Value = risk;
-                riskCell.Style.Font.Bold = true;
-                riskCell.Style.Font.FontColor = risk switch
-                {
-                    "High" => XLColor.Red,
-                    "Medium" => XLColor.Orange,
-                    _ => XLColor.Green
-                };
-
-                sheet.Cell(row, 9).Value = Convert.ToDouble(type.GetProperty("FinalRiskScore")?.GetValue(item) ?? 0);
-                sheet.Cell(row, 10).Value = type.GetProperty("Notes")?.GetValue(item)?.ToString() ?? "-";
-                sheet.Cell(row, 11).Value = type.GetProperty("Status")?.GetValue(item)?.ToString();
+                sheet.Cell(row, 8).Value = type.GetProperty("Notes")?.GetValue(item)?.ToString() ?? "-";
+                sheet.Cell(row, 9).Value = type.GetProperty("Status")?.GetValue(item)?.ToString();
 
                 // محاذاة البيانات في المنتصف
-                sheet.Range(row, 1, row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                sheet.Range(row, 1, row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
                 row++;
             }

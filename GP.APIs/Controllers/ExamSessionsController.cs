@@ -66,8 +66,6 @@ namespace GP.APIs.Controllers
                 StudentId = student.Id,
                 StartTime = DateTime.UtcNow,
                 Status = "InProgress",
-                FinalRiskScore = 0,
-                RiskLevel = "Low",
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -101,7 +99,6 @@ namespace GP.APIs.Controllers
             });
         }
 
-        // الـ AI بيبعت نتيجة
         [HttpPost("{sessionId}/ai-result")]
         public async Task<IActionResult> ReceiveAiResult(int sessionId, AiResultDto dto)
         {
@@ -111,80 +108,67 @@ namespace GP.APIs.Controllers
             if (session == null) return NotFound("Session not found");
             if (session.Status != "InProgress") return BadRequest("Session is not active");
 
-            if (!Enum.TryParse<EventType>(dto.EventType, out var eventType))
-                return BadRequest("Invalid event type");
+            var student = await _unitOfWork.Repository<Student>()
+                .FindOneAsync(s => s.StudentUniversityID == dto.StudentUniversityID);
+
+            if (student == null) return NotFound("Student not found");
+
+            var studentUser = await _unitOfWork.Repository<User>()
+                .GetByIdAsync(student.UserId);
 
             var suspiciousEvent = new SuspiciousEvent
             {
                 SessionId = sessionId,
-                EventType = eventType,
-                RiskScoreContribution = dto.RiskScoreContribution,
-                Confidence = dto.Confidence,
-                Source = "AI",
-                FrameUrl = dto.FrameUrl,
-                MetadataJson = dto.MetadataJson,
+                StudentUniversityID = dto.StudentUniversityID,
+                StudentName = studentUser?.FullName ?? "Unknown",
+                CheatingCount = dto.CheatingCount,
+                ScreenshotsUrl = dto.ScreenshotsUrl,
                 Timestamp = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow
             };
 
             await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(suspiciousEvent);
-
-            session.FinalRiskScore += dto.RiskScoreContribution;
-            session.RiskLevel = session.FinalRiskScore switch
-            {
-                <= 0.3m => "Low",
-                <= 0.7m => "Medium",
-                _ => "High"
-            };
-            session.UpdatedAt = DateTime.UtcNow;
-
-            _unitOfWork.Repository<ExamSession>().Update(session);
             await _unitOfWork.CompleteAsync();
 
-            return Ok(new { RiskScore = session.FinalRiskScore, RiskLevel = session.RiskLevel });
+            return Ok(new { Message = "AI results saved successfully" });
         }
+
 
         // الـ Frontend بيبعت Browser Event
-        [HttpPost("{sessionId}/browser-event")]
-        public async Task<IActionResult> ReceiveBrowserEvent(int sessionId, BrowserEventDto dto)
-        {
-            var session = await _unitOfWork.Repository<ExamSession>()
-                .GetByIdAsync(sessionId);
+        //[HttpPost("{sessionId}/browser-event")]
+        //public async Task<IActionResult> ReceiveBrowserEvent(int sessionId, BrowserEventDto dto)
+        //{
+        //    var session = await _unitOfWork.Repository<ExamSession>()
+        //        .GetByIdAsync(sessionId);
 
-            if (session == null) return NotFound("Session not found");
-            if (session.Status != "InProgress") return BadRequest("Session is not active");
+        //    if (session == null) return NotFound("Session not found");
+        //    if (session.Status != "InProgress") return BadRequest("Session is not active");
 
-            if (!Enum.TryParse<EventType>(dto.EventType, out var eventType))
-                return BadRequest("Invalid event type");
+        //    if (!Enum.TryParse<EventType>(dto.EventType, out var eventType))
+        //        return BadRequest("Invalid event type");
 
-            var browserEvent = new SuspiciousEvent
-            {
-                SessionId = sessionId,
-                EventType = eventType,
-                RiskScoreContribution = 0.1m,
-                Confidence = 1.0,
-                Source = "Browser",
-                MetadataJson = dto.MetadataJson,
-                Timestamp = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            };
+        //    var browserEvent = new SuspiciousEvent
+        //    {
+        //        SessionId = sessionId,
+        //        EventType = eventType,
+        //        RiskScoreContribution = 0.1m,
+        //        Confidence = 1.0,
+        //        Source = "Browser",
+        //        MetadataJson = dto.MetadataJson,
+        //        Timestamp = DateTime.UtcNow,
+        //        CreatedAt = DateTime.UtcNow
+        //    };
 
-            await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(browserEvent);
+        //    await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(browserEvent);
 
-            session.FinalRiskScore += 0.1m;
-            session.RiskLevel = session.FinalRiskScore switch
-            {
-                <= 0.3m => "Low",
-                <= 0.7m => "Medium",
-                _ => "High"
-            };
-            session.UpdatedAt = DateTime.UtcNow;
 
-            _unitOfWork.Repository<ExamSession>().Update(session);
-            await _unitOfWork.CompleteAsync();
+        //    session.UpdatedAt = DateTime.UtcNow;
 
-            return Ok(new { RiskScore = session.FinalRiskScore, RiskLevel = session.RiskLevel });
-        }
+        //    _unitOfWork.Repository<ExamSession>().Update(session);
+        //    await _unitOfWork.CompleteAsync();
+
+        //    return Ok(new { Message = "Browser Event saved successfully" });
+        //}
 
         // الطالب يسلم الامتحان
         //[HttpPost("{sessionId}/submit")]
@@ -309,8 +293,6 @@ namespace GP.APIs.Controllers
             {
                 SessionId = sessionId,
                 InstructorId = instructor.Id,
-                FinalRiskScore = session.FinalRiskScore,
-                RiskLevel = session.RiskLevel,
                 TotalQuestions = total,
                 CorrectAnswers = correct,
                 ScorePercent = total > 0 ? Math.Round((decimal)correct / total * 100, 2) : 0,
@@ -332,10 +314,8 @@ namespace GP.APIs.Controllers
                 CorrectAnswers = correct,
                 ScorePercent = report.ScorePercent,
                 Notes = dto.LeavingExam,
-                RiskLevel = session.RiskLevel
             });
         }
-
 
 
         // الدكتور يشوف Sessions
@@ -352,7 +332,6 @@ namespace GP.APIs.Controllers
                 StudentName = $"{s.Student.User.FullName}",
                 ExamSubject = s.Exam.Subject,
                 s.Status,
-                s.RiskLevel,
                 s.StartTime
             });
 
@@ -385,8 +364,6 @@ namespace GP.APIs.Controllers
                     ? $"{session.Student.User.FullName}"
                     : "Unknown",
                 UniversityId = session.Student?.StudentUniversityID,
-                session.RiskLevel,
-                session.FinalRiskScore
             });
         }
     }

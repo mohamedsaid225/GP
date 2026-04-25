@@ -9,15 +9,14 @@ namespace GP.Core.Entities
     public class SuspiciousEvent : BaseEntity
     {
         public int SessionId { get; set; }
-        public EventType EventType { get; set; }
-        public decimal RiskScoreContribution { get; set; }
-        public double Confidence { get; set; }
-        public string Source { get; set; } = "AI";
-        public string? FrameUrl { get; set; }
-        public string? MetadataJson { get; set; }
+        public string StudentUniversityID { get; set; }
+        public string StudentName { get; set; }
+        public int CheatingCount { get; set; }
+        public int LeavingExamCount { get; set; }
+        public string ScreenshotsUrl { get; set; }
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
         // Navigation
-        public ExamSession Session { get; set; } = null!;
+        public ExamSession Session { get; set; }
     }
 }

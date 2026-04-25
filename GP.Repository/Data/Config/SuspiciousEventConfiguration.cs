@@ -18,34 +18,28 @@ namespace GP.Repository.Data.Config
             builder.Property(se => se.SessionId)
                    .IsRequired();
 
-            // Enum stored as string for readability
-            builder.Property(se => se.EventType)
+            builder.Property(se => se.StudentUniversityID)
                    .IsRequired()
-                   .HasConversion<string>()
-                   .HasMaxLength(100);
+                   .HasMaxLength(50);
 
-            builder.Property(se => se.RiskScoreContribution)
-                   .HasColumnType("decimal(5,2)")
-                   .HasDefaultValue(0.00m);
-
-            builder.Property(se => se.Confidence)
+            builder.Property(se => se.StudentName)
                    .IsRequired()
-                   .HasDefaultValue(0.0);
+                   .HasMaxLength(200);
 
-            builder.Property(se => se.Source)
+            builder.Property(se => se.CheatingCount)
                    .IsRequired()
-                   .HasMaxLength(50)
-                   .HasDefaultValue("AI");
+                   .HasDefaultValue(0);
 
-            builder.Property(se => se.FrameUrl)
-                   .IsRequired(false)
-                   .HasMaxLength(500);
+            builder.Property(se => se.LeavingExamCount)
+                   .IsRequired()
+                   .HasDefaultValue(0);
 
-            builder.Property(se => se.MetadataJson)
+            builder.Property(se => se.ScreenshotsUrl)
                    .IsRequired(false)
                    .HasColumnType("nvarchar(max)");
 
             builder.Property(se => se.Timestamp)
+                   .IsRequired()
                    .IsRequired()
                    .HasDefaultValueSql("GETUTCDATE()");
 

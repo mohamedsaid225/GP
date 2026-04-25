@@ -28,14 +28,14 @@ namespace GP.Repository.Data.Config
             builder.Property(es => es.EndTime)
                    .IsRequired(false);
 
-            builder.Property(es => es.FinalRiskScore)
-                   .HasColumnType("decimal(5,2)")
-                   .HasDefaultValue(0.00m);
+            //builder.Property(es => es.FinalRiskScore)
+            //       .HasColumnType("decimal(5,2)")
+            //       .HasDefaultValue(0.00m);
 
-            builder.Property(es => es.RiskLevel)
-                   .IsRequired()
-                   .HasMaxLength(50)
-                   .HasDefaultValue("Low");
+            //builder.Property(es => es.RiskLevel)
+            //       .IsRequired()
+            //       .HasMaxLength(50)
+            //       .HasDefaultValue("Low");
 
             builder.Property(es => es.Status)
                    .IsRequired()

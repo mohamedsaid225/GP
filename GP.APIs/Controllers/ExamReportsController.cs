@@ -58,8 +58,6 @@ namespace GP.APIs.Controllers
                 result.Add(new
                 {
                     report.Id,
-                    report.FinalRiskScore,
-                    report.RiskLevel,
                     report.TotalQuestions,
                     report.CorrectAnswers,
                     report.ScorePercent,
@@ -100,37 +98,33 @@ namespace GP.APIs.Controllers
                 ? await _unitOfWork.Repository<User>().GetByIdAsync(student.UserId)
                 : null;
 
-            var suspiciousEvents = await _unitOfWork.Repository<SuspiciousEvent>()
-                .FindAsync(e => e.SessionId == sessionId);
-
             var answers = await _unitOfWork.Repository<StudentAnswer>()
                 .FindAsync(a => a.SessionId == sessionId);
+
+            var suspiciousEvent = await _unitOfWork.Repository<SuspiciousEvent>()
+                                                   .FindOneAsync(e => e.SessionId == sessionId);
 
             return Ok(new
             {
                 report.Id,
-                report.FinalRiskScore,
-                report.RiskLevel,
                 report.TotalQuestions,
                 report.CorrectAnswers,
                 report.ScorePercent,
+                report.CheatingCount,
+                report.ScreenshotsUrl,
                 report.Status,
                 report.Notes,
                 report.GeneratedAt,
                 report.ReviewedAt,
-                StudentName = studentUser != null
-                    ? $"{studentUser.FullName}"
-                    : "Unknown",
+                StudentName = studentUser?.FullName ?? "Unknown",
                 StudentUniversityID = student?.StudentUniversityID,
-                SuspiciousEvents = suspiciousEvents.Select(e => new
+                SuspiciousEvent = suspiciousEvent != null ? new
                 {
-                    e.EventType,
-                    e.RiskScoreContribution,
-                    e.Confidence,
-                    e.Source,
-                    e.FrameUrl,
-                    e.Timestamp
-                }),
+                    suspiciousEvent.CheatingCount,
+                    suspiciousEvent.LeavingExamCount,
+                    suspiciousEvent.ScreenshotsUrl,
+                    suspiciousEvent.Timestamp
+                } : null,
                 Answers = answers.Select(a => new
                 {
                     a.QuestionId,
@@ -306,8 +300,6 @@ namespace GP.APIs.Controllers
                     ScorePercent = report?.ScorePercent,
                     CorrectAnswers = report?.CorrectAnswers,
                     TotalQuestions = report?.TotalQuestions,
-                    RiskLevel = report?.RiskLevel,
-                    FinalRiskScore = report?.FinalRiskScore,
                     Notes = report != null ? $"Leaving Exam: {report.Notes?.Replace("Leaving Exam Counter: ", "")}" : "No Report",
                     Status = report?.Status,
 

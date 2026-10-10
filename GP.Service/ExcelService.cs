@@ -39,20 +39,20 @@ namespace GP.Service
             summary.Cell("A8").Value = "End Time";
             summary.Cell("B8").Value = session.EndTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "N/A";
 
-            summary.Cell("A10").Value = "Total Questions";
-            summary.Cell("B10").Value = report.TotalQuestions;
+            summary.Cell("A9").Value = "Total Questions";
+            summary.Cell("B9").Value = report.TotalQuestions;
 
-            summary.Cell("A11").Value = "Correct Answers";
-            summary.Cell("B11").Value = report.CorrectAnswers;
+            summary.Cell("10").Value = "Correct Answers";
+            summary.Cell("B10").Value = report.CorrectAnswers;
 
-            summary.Cell("A12").Value = "Score";
-            summary.Cell("B12").Value = $"{report.ScorePercent}%";
+            summary.Cell("A11").Value = "Score";
+            summary.Cell("B11").Value = $"{report.ScorePercent}%";
 
-            summary.Cell("A13").Value = "Status";
-            summary.Cell("B13").Value = report.Status;
+            summary.Cell("A12").Value = "Status";
+            summary.Cell("B12").Value = report.Status;
 
-            summary.Cell("A14").Value = "Notes";
-            summary.Cell("B14").Value = report.Notes ?? "No notes";
+            summary.Cell("A13").Value = "Notes";
+            summary.Cell("B13").Value = report.Notes ?? "No notes";
 
             summary.Columns().AdjustToContents();
 
@@ -158,18 +158,86 @@ namespace GP.Service
         //    return Task.FromResult(stream.ToArray());
         //}
 
+        //    public Task<byte[]> GenerateExamReportsAsync(List<object> data, Exam exam)
+        //    {
+        //        using var workbook = new XLWorkbook();
+        //        var sheet = workbook.Worksheets.Add("Exam Report");
+
+        //        string[] headers = {
+        //    "Student Name", "University ID", "Exam Code", "Subject",
+        //    "Score %", "Correct Answers", "Total Questions",
+        //    "Risk Level", "Final Risk Score", "Notes", "Status"
+        //};
+
+        //        // --- تنسيق الهيدر ---
+        //        for (int i = 0; i < headers.Length; i++)
+        //        {
+        //            var cell = sheet.Cell(1, i + 1);
+        //            cell.Value = headers[i];
+        //            cell.Style.Font.Bold = true;
+        //            cell.Style.Font.FontColor = XLColor.White;
+        //            cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#2c3e50");
+        //            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        //        }
+
+        //        int row = 2;
+        //        foreach (var item in data)
+        //        {
+        //            var type = item.GetType();
+
+        //            sheet.Cell(row, 1).Value = type.GetProperty("StudentName")?.GetValue(item)?.ToString();
+        //            sheet.Cell(row, 2).Value = type.GetProperty("StudentUniversityID")?.GetValue(item)?.ToString();
+        //            sheet.Cell(row, 3).Value = type.GetProperty("ExamCode")?.GetValue(item)?.ToString();
+        //            sheet.Cell(row, 4).Value = type.GetProperty("ExamSubject")?.GetValue(item)?.ToString();
+
+        //            // --- تعديل تنسيق الـ Score عشان ميظهرش ####### ---
+        //            var scoreVal = Convert.ToDouble(type.GetProperty("ScorePercent")?.GetValue(item) ?? 0);
+        //            var scoreCell = sheet.Cell(row, 5);
+        //            scoreCell.Value = scoreVal / 100; // نقسم على 100 عشان إكسيل بيفهم الـ % ككسر
+        //            scoreCell.Style.NumberFormat.Format = "0%"; // تنسيق مئوي قياسي
+
+        //            sheet.Cell(row, 6).Value = Convert.ToInt32(type.GetProperty("CorrectAnswers")?.GetValue(item) ?? 0);
+        //            sheet.Cell(row, 7).Value = Convert.ToInt32(type.GetProperty("TotalQuestions")?.GetValue(item) ?? 0);
+        //            sheet.Cell(row, 8).Value = type.GetProperty("Notes")?.GetValue(item)?.ToString() ?? "-";
+        //            sheet.Cell(row, 9).Value = type.GetProperty("Status")?.GetValue(item)?.ToString();
+
+        //            // محاذاة البيانات في المنتصف
+        //            sheet.Range(row, 1, row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        //            row++;
+        //        }
+
+        //        // --- لمسات تحسين الشكل النهائي ---
+
+        //        // 1. تحويل الجدول لـ Excel Table
+        //        var range = sheet.Range(1, 1, row - 1, 11);
+        //        var table = range.CreateTable();
+        //        table.Theme = XLTableTheme.TableStyleMedium2;
+
+        //        // 2. ضبط العرض تلقائياً لكل الأعمدة
+        //        sheet.Columns().AdjustToContents();
+
+        //        // 3. زيادة عرض عمود الـ Notes والـ Score يدوياً لضمان عدم ظهور الشباك #
+        //        sheet.Column(5).Width = 15;  // Score column
+        //        sheet.Column(10).Width = 45; // Notes column (خليته أوسع عشان الكلام ميبقاش مقطوع)
+
+        //        sheet.SheetView.FreezeRows(1);
+
+        //        using var stream = new MemoryStream();
+        //        workbook.SaveAs(stream);
+        //        return Task.FromResult(stream.ToArray());
+        //    }
+
+
         public Task<byte[]> GenerateExamReportsAsync(List<object> data, Exam exam)
         {
             using var workbook = new XLWorkbook();
             var sheet = workbook.Worksheets.Add("Exam Report");
 
-            string[] headers = {
-        "Student Name", "University ID", "Exam Code", "Subject",
-        "Score %", "Correct Answers", "Total Questions",
-        "Risk Level", "Final Risk Score", "Notes", "Status"
-    };
+            string[] headers = {"Student Name", "University ID", "Exam Code", "Subject",
+                                "Score %", "Correct Answers", "Total Questions",
+                                "Cheating Count", "Screenshots URL", "Notes", "Status" };
 
-            // --- تنسيق الهيدر ---
             for (int i = 0; i < headers.Length; i++)
             {
                 var cell = sheet.Cell(1, i + 1);
@@ -190,36 +258,38 @@ namespace GP.Service
                 sheet.Cell(row, 3).Value = type.GetProperty("ExamCode")?.GetValue(item)?.ToString();
                 sheet.Cell(row, 4).Value = type.GetProperty("ExamSubject")?.GetValue(item)?.ToString();
 
-                // --- تعديل تنسيق الـ Score عشان ميظهرش ####### ---
                 var scoreVal = Convert.ToDouble(type.GetProperty("ScorePercent")?.GetValue(item) ?? 0);
                 var scoreCell = sheet.Cell(row, 5);
-                scoreCell.Value = scoreVal / 100; // نقسم على 100 عشان إكسيل بيفهم الـ % ككسر
-                scoreCell.Style.NumberFormat.Format = "0%"; // تنسيق مئوي قياسي
+                scoreCell.Value = scoreVal / 100;
+                scoreCell.Style.NumberFormat.Format = "0%";
 
                 sheet.Cell(row, 6).Value = Convert.ToInt32(type.GetProperty("CorrectAnswers")?.GetValue(item) ?? 0);
                 sheet.Cell(row, 7).Value = Convert.ToInt32(type.GetProperty("TotalQuestions")?.GetValue(item) ?? 0);
-                sheet.Cell(row, 8).Value = type.GetProperty("Notes")?.GetValue(item)?.ToString() ?? "-";
-                sheet.Cell(row, 9).Value = type.GetProperty("Status")?.GetValue(item)?.ToString();
+                sheet.Cell(row, 8).Value = Convert.ToInt32(type.GetProperty("CheatingCount")?.GetValue(item) ?? 0);
+                sheet.Cell(row, 9).Value = type.GetProperty("ScreenshotsUrl")?.GetValue(item)?.ToString() ?? "-";
+                sheet.Cell(row, 10).Value = type.GetProperty("Notes")?.GetValue(item)?.ToString() ?? "-";
+                sheet.Cell(row, 11).Value = type.GetProperty("Status")?.GetValue(item)?.ToString();
 
-                // محاذاة البيانات في المنتصف
-                sheet.Range(row, 1, row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                sheet.Range(row, 1, row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
                 row++;
             }
 
-            // --- لمسات تحسين الشكل النهائي ---
-
-            // 1. تحويل الجدول لـ Excel Table
             var range = sheet.Range(1, 1, row - 1, 11);
             var table = range.CreateTable();
             table.Theme = XLTableTheme.TableStyleMedium2;
 
-            // 2. ضبط العرض تلقائياً لكل الأعمدة
             sheet.Columns().AdjustToContents();
-
-            // 3. زيادة عرض عمود الـ Notes والـ Score يدوياً لضمان عدم ظهور الشباك #
-            sheet.Column(5).Width = 15;  // Score column
-            sheet.Column(10).Width = 45; // Notes column (خليته أوسع عشان الكلام ميبقاش مقطوع)
+            sheet.Column(2).Width = 25;
+            sheet.Column(3).Width = 15;
+            sheet.Column(4).Width = 15;
+            sheet.Column(5).Width = 15;
+            sheet.Column(6).Width = 25;
+            sheet.Column(7).Width = 25;
+            sheet.Column(8).Width = 25;
+            sheet.Column(9).Width = 45;
+            sheet.Column(10).Width = 45;
+            sheet.Column(11).Width = 15;
 
             sheet.SheetView.FreezeRows(1);
 

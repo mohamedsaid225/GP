@@ -23,7 +23,7 @@ namespace GP.Repository.Data.Config
 
             builder.Property(sa => sa.SelectedAnswer)
                    .IsRequired(false)
-                   .HasMaxLength(1); // "A", "B", "C", "D"
+                   .HasMaxLength(50); // "A", "B", "C", "D"
 
             builder.Property(sa => sa.IsCorrect)
                    .IsRequired()

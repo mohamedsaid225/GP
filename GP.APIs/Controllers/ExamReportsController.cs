@@ -296,13 +296,13 @@ namespace GP.APIs.Controllers
                     StudentUniversityID = student?.StudentUniversityID,
                     ExamCode = exam.Code,
                     ExamSubject = exam.Subject,
-
                     ScorePercent = report?.ScorePercent,
                     CorrectAnswers = report?.CorrectAnswers,
                     TotalQuestions = report?.TotalQuestions,
-                    Notes = report != null ? $"Leaving Exam: {report.Notes?.Replace("Leaving Exam Counter: ", "")}" : "No Report",
-                    Status = report?.Status,
-
+                    CheatingCount = report?.CheatingCount ?? 0,
+                    ScreenshotsUrl = report?.ScreenshotsUrl ?? "-",
+                    Notes = report?.Notes ?? "-",
+                    Status = report?.Status
                 });
             }
             await _unitOfWork.CompleteAsync();

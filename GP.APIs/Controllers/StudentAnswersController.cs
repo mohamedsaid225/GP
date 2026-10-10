@@ -32,14 +32,6 @@ namespace GP.APIs.Controllers
             return Ok(answer);
         }
 
-        //[HttpPost]
-        //public async Task<IActionResult> Create(StudentAnswer answer)
-        //{
-        //    await _unitOfWork.Repository<StudentAnswer>().AddAsync(answer);
-        //    await _unitOfWork.CompleteAsync();
-        //    return CreatedAtAction(nameof(GetById), new { id = answer.Id }, answer);
-        //}
-
         [HttpPost]
         public async Task<IActionResult> Create(SubmitAnswerDto dto)
         {

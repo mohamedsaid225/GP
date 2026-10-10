@@ -47,6 +47,12 @@ namespace GP.Repository.Data.Config
             builder.Property(e => e.DurationMinutes)
                    .IsRequired();
 
+            builder.Property(e => e.ActiveFrom)
+                   .HasColumnType("datetime2");
+
+            builder.Property(e => e.ActiveTo)
+                   .HasColumnType("datetime2");
+
             builder.Property(e => e.Status)
                    .IsRequired()
                    .HasMaxLength(50)

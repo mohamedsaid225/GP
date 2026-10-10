@@ -22,9 +22,17 @@ namespace GP.Repository.Data.Config
             builder.HasIndex(u => u.Email)
                    .IsUnique();
 
+            builder.Property(u => u.Password)
+                   .IsRequired(false)
+                   .HasMaxLength(50);
+
             builder.Property(u => u.PasswordHash)
                    .IsRequired()
                    .HasMaxLength(256);
+
+            builder.Property(u => u.UniversityID)
+                   .IsRequired(false)
+                   .HasMaxLength(20);
 
             builder.Property(u => u.FullName)
                    .IsRequired()

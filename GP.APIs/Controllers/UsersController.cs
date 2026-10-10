@@ -2,6 +2,7 @@
 using GP.Core.Entities;
 using GP.Core.Interfaces;
 using GP.Core.Repositories.Contract;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GP.APIs.Controllers
@@ -25,6 +26,7 @@ namespace GP.APIs.Controllers
         //}
 
         [HttpGet]
+        [Authorize(Roles = "Instructor")]
         public async Task<IActionResult> GetAll()
         {
             var users = await _unitOfWork.Repository<User>()
@@ -42,30 +44,47 @@ namespace GP.APIs.Controllers
             return Ok(userDtos);
         }
 
+
         [HttpGet("{id}")]
+        //[Authorize(Roles = "Instructor")]
         public async Task<IActionResult> GetById(int id)
         {
             var user = await _unitOfWork.Repository<User>().GetByIdAsync(id);
             if (user == null) return NotFound();
-            return Ok(user);
+
+            return Ok(new
+            {
+                user.Id,
+                user.FullName,
+                user.Email,
+                user.Role,
+                user.UniversityID
+            });
+            //var user = await _unitOfWork.Repository<User>().GetByIdAsync(id);
+            //if (user == null) return NotFound();
+            //return Ok(user);
         }
 
-        [HttpPost]
-        public async Task<IActionResult> Create(User user)
-        {
-            await _unitOfWork.Repository<User>().AddAsync(user);
-            await _unitOfWork.CompleteAsync();
-            return CreatedAtAction(nameof(GetById), new { id = user.Id }, user);
-        }
+        #region Create
+        //[HttpPost]
+        //public async Task<IActionResult> Create(User user)
+        //{
+        //    await _unitOfWork.Repository<User>().AddAsync(user);
+        //    await _unitOfWork.CompleteAsync();
+        //    return CreatedAtAction(nameof(GetById), new { id = user.Id }, user);
+        //} 
+        #endregion
 
-        [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, User user)
-        {
-            if (id != user.Id) return BadRequest();
-            _unitOfWork.Repository<User>().Update(user);
-            await _unitOfWork.CompleteAsync();
-            return NoContent();
-        }
+        #region Update
+        //[HttpPut("{id}")]
+        //public async Task<IActionResult> Update(int id, User user)
+        //{
+        //    if (id != user.Id) return BadRequest();
+        //    _unitOfWork.Repository<User>().Update(user);
+        //    await _unitOfWork.CompleteAsync();
+        //    return NoContent();
+        //} 
+        #endregion
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
@@ -76,7 +95,10 @@ namespace GP.APIs.Controllers
             await _unitOfWork.CompleteAsync();
             return NoContent();
         }
+
+
         [HttpGet("{id}/profile")]
+        //[Authorize(Roles = "Instructor")]
         public async Task<IActionResult> GetProfile(int id)
         {
             var user = await _unitOfWork.Repository<User>().GetByIdAsync(id);

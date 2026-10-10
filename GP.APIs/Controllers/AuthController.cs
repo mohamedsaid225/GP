@@ -21,6 +21,7 @@ namespace GP.APIs.Controllers
             _tokenService = tokenService;
         }
 
+
         //[HttpPost("login")]
         //public async Task<IActionResult> Login(LoginDto dto)
         //{
@@ -77,6 +78,18 @@ namespace GP.APIs.Controllers
                 instructorCode = instructor?.InstructorCode; // ✅
             }
 
+            var auditLog = new AuditLog
+            {
+                UserId = user.Id,
+                Action = "Login",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                Details = $"{user.FullName} logged in as {user.Role}",
+                Timestamp = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _unitOfWork.Repository<AuditLog>().AddAsync(auditLog);
+            await _unitOfWork.CompleteAsync();
+
             return Ok(new UserDto
             {
                 Id = user.Id,
@@ -86,6 +99,8 @@ namespace GP.APIs.Controllers
                 Token = _tokenService.CreateToken(user),
                 InstructorCode = instructorCode // ✅
             });
+
+            
         }
     }
 }

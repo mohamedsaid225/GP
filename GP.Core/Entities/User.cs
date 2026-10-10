@@ -9,10 +9,10 @@ namespace GP.Core.Entities
     public class User : BaseEntity
     {
         public string Email { get; set; }
+        public string Password { get; set; }
         public string PasswordHash { get; set; }
-        //public string FirstName { get; set; }
-        //public string LastName { get; set; }
         public string FullName { get; set; }
+        public string UniversityID { get; set; }
         public string Role { get; set; } // "Student" or "Instructor"
 
         // Navigation

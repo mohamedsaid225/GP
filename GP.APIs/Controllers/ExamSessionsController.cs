@@ -1,4 +1,8 @@
-﻿using GP.Core.DTOs;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using GP.Core.DTOs;
 using GP.Core.Entities;
 using GP.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -16,50 +20,165 @@ namespace GP.APIs.Controllers
             _unitOfWork = unitOfWork;
         }
 
-        // الطالب يدخل الامتحان
-        [HttpPost("join")]
-        public async Task<IActionResult> Join(JoinExamDto dto)
+
+        // فحص قبل فتح صفحة الامتحان أو طلب الكاميرا
+        // لا ينشئ Session. يستخدم فقط لمعرفة هل الطالب مسموح له يدخل أم امتحن قبل كده.
+        [HttpPost("precheck")]
+        public async Task<IActionResult> Precheck(JoinExamDto dto)
         {
-            // 1. لقي الامتحان
             var exam = await _unitOfWork.Repository<Exam>()
                 .FindOneAsync(e => e.Code == dto.ExamCode && e.Status == "Active");
 
-            if (exam == null) return NotFound("Exam not found or not active");
+            if (exam == null)
+            {
+                return NotFound(new
+                {
+                    canJoin = false,
+                    message = "Exam not found or not active"
+                });
+            }
 
-            // 2. لقي الطالب
+            var now = DateTime.Now;
+
+            if (exam.ActiveFrom.HasValue && now < exam.ActiveFrom.Value)
+            {
+                return BadRequest(new
+                {
+                    canJoin = false,
+                    message = "Exam is not active yet",
+                    activeFrom = exam.ActiveFrom
+                });
+            }
+
+            if (exam.ActiveTo.HasValue && now > exam.ActiveTo.Value)
+            {
+                return BadRequest(new
+                {
+                    canJoin = false,
+                    message = "Exam availability window has ended",
+                    activeTo = exam.ActiveTo
+                });
+            }
+
             var student = await _unitOfWork.Repository<Student>()
                 .FindOneAsync(s => s.StudentUniversityID == dto.StudentUniversityID, s => s.User);
 
-            if (student == null) return NotFound("Student not found");
+            if (student == null)
+            {
+                return NotFound(new
+                {
+                    canJoin = false,
+                    message = "Student not found"
+                });
+            }
 
-            // 3. تأكد إن الطالب مؤهل للامتحان ده ✅
             if (!student.Department.Equals(exam.Department, StringComparison.OrdinalIgnoreCase) ||
                 !student.College.Equals(exam.College, StringComparison.OrdinalIgnoreCase) ||
                 !student.University.Equals(exam.University, StringComparison.OrdinalIgnoreCase) ||
                 student.Level != exam.Level)
             {
+                return Unauthorized(new
+                {
+                    canJoin = false,
+                    message = "You are not eligible for this exam"
+                });
+            }
+
+            var existing = await _unitOfWork.Repository<ExamSession>()
+                .FindOneAsync(s => s.ExamId == exam.Id && s.StudentId == student.Id);
+
+            if (existing != null)
+            {
+                return BadRequest(new
+                {
+                    canJoin = false,
+                    alreadyTaken = true,
+                    message = "You have already taken this exam"
+                });
+            }
+
+            return Ok(new
+            {
+                canJoin = true,
+                examId = exam.Id,
+                studentId = student.Id,
+                studentName = student.User?.FullName,
+                message = "Student can start this exam"
+            });
+        }
+
+        // الطالب يدخل الامتحان
+        [HttpPost("join")]
+        public async Task<IActionResult> Join(JoinExamDto dto)
+        {
+            var exam = await _unitOfWork.Repository<Exam>()
+                .FindOneAsync(e => e.Code == dto.ExamCode && e.Status == "Active");
+
+            if (exam == null)
+            {
+                return NotFound("Exam not found or not active");
+            }
+
+            var now = DateTime.Now;
+
+            if (exam.ActiveFrom.HasValue && now < exam.ActiveFrom.Value)
+            {
+                return BadRequest(new
+                {
+                    message = "Exam is not active yet",
+                    activeFrom = exam.ActiveFrom
+                });
+            }
+
+            if (exam.ActiveTo.HasValue && now > exam.ActiveTo.Value)
+            {
+                return BadRequest(new
+                {
+                    message = "Exam availability window has ended",
+                    activeTo = exam.ActiveTo
+                });
+            }
+
+            var student = await _unitOfWork.Repository<Student>()
+                .FindOneAsync(s => s.StudentUniversityID == dto.StudentUniversityID, s => s.User);
+
+            if (student == null)
+            {
+                return NotFound("Student not found");
+            }
+
+            //if (!student.Department.Equals(exam.Department, StringComparison.OrdinalIgnoreCase) ||
+            //    !student.College.Equals(exam.College, StringComparison.OrdinalIgnoreCase) ||
+            //    !student.University.Equals(exam.University, StringComparison.OrdinalIgnoreCase) ||
+            //    student.Level != exam.Level)
+            //{
+            //    return Unauthorized("You are not eligible for this exam");
+            //}
+
+            string Normalize(string value)
+            {
+                return (value ?? "").Trim().ToLower();
+            }
+
+            if (Normalize(student.Department) != Normalize(exam.Department) ||
+                Normalize(student.College) != Normalize(exam.College) ||
+                Normalize(student.University) != Normalize(exam.University) ||
+                student.Level != exam.Level)
+            {
                 return Unauthorized("You are not eligible for this exam");
             }
 
-            // 4. تأكد مش عامل session قبل كده
-            //var existing = await _unitOfWork.Repository<ExamSession>()
-            //    .FindOneAsync(s => s.ExamId == exam.Id
-            //                   && s.StudentId == student.Id
-            //                   && s.Status == "InProgress");
-
-            //if (existing != null) return BadRequest("Already in an active session");
-
             var existing = await _unitOfWork.Repository<ExamSession>()
-                                            .FindOneAsync(s => s.ExamId == exam.Id
-                                                          && s.StudentId == student.Id);
+                .FindOneAsync(s => s.ExamId == exam.Id && s.StudentId == student.Id);
 
-            if (existing != null) return BadRequest(new
+            if (existing != null)
             {
-                message = "You have already taken this exam"
-            });
+                return BadRequest(new
+                {
+                    message = "You have already taken this exam"
+                });
+            }
 
-
-            // 5. عمل Session جديد
             var session = new ExamSession
             {
                 ExamId = exam.Id,
@@ -72,11 +191,21 @@ namespace GP.APIs.Controllers
             await _unitOfWork.Repository<ExamSession>().AddAsync(session);
             await _unitOfWork.CompleteAsync();
 
-            var questions = await _unitOfWork.Repository<Question>().FindAsync(q => q.ExamId == exam.Id);
+            var auditLog = new AuditLog
+            {
+                UserId = student.UserId,
+                Action = "JoinExam",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                Details = $"Student '{student.StudentUniversityID}' joined exam '{exam.Code}'",
+                Timestamp = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            };
 
-            // 6. رجّع الأسئلة مع الـ Session
-            //var questions = await _unitOfWork.Repository<Question>()
-            //    .FindAsync(q => q.ExamId == exam.Id);
+            await _unitOfWork.Repository<AuditLog>().AddAsync(auditLog);
+            await _unitOfWork.CompleteAsync();
+
+            var questions = await _unitOfWork.Repository<Question>()
+                .FindAsync(q => q.ExamId == exam.Id);
 
             return Ok(new
             {
@@ -84,20 +213,96 @@ namespace GP.APIs.Controllers
                 ExamId = exam.Id,
                 Subject = exam.Subject,
                 DurationMinutes = exam.DurationMinutes,
-                StudentName = $"{student.User.FullName}",
+                ActiveFrom = exam.ActiveFrom,
+                ActiveTo = exam.ActiveTo,
+                StudentName = student.User.FullName,
                 StudentID = student.StudentUniversityID,
-                Questions = questions.Select(q => new
-                {
-                    q.Id,
-                    q.QuestionText,
-                    q.OptionA,
-                    q.OptionB,
-                    q.OptionC,
-                    q.OptionD,
-                    q.OrderIndex
-                })
+                Questions = questions
+                    .OrderBy(q => q.OrderIndex)
+                    .Select(q => new
+                    {
+                        q.Id,
+                        q.QuestionText,
+                        q.OptionA,
+                        q.OptionB,
+                        q.OptionC,
+                        q.OptionD,
+                        q.OrderIndex
+                    })
             });
         }
+
+        //[HttpPost("{sessionId}/ai-result")]
+        //public async Task<IActionResult> ReceiveAiResult(int sessionId, AiResultDto dto)
+        //{
+        //    var session = await _unitOfWork.Repository<ExamSession>()
+        //        .GetByIdAsync(sessionId);
+
+        //    if (session == null)
+        //    {
+        //        return NotFound("Session not found");
+        //    }
+
+        //    var student = await _unitOfWork.Repository<Student>()
+        //        .FindOneAsync(s => s.StudentUniversityID == dto.StudentUniversityID);
+
+        //    if (student == null)
+        //    {
+        //        return NotFound("Student not found");
+        //    }
+
+        //    var studentUser = await _unitOfWork.Repository<User>()
+        //        .GetByIdAsync(student.UserId);
+
+        //    var screenshotsUrl = NormalizeScreenshotsUrl(dto.ScreenshotsUrl);
+
+        //    var suspiciousEvent = new SuspiciousEvent
+        //    {
+        //        SessionId = sessionId,
+        //        StudentUniversityID = dto.StudentUniversityID,
+        //        StudentName = studentUser?.FullName ?? "Unknown",
+        //        CheatingCount = dto.CheatingCount,
+        //        ScreenshotsUrl = screenshotsUrl,
+        //        Timestamp = DateTime.UtcNow,
+        //        CreatedAt = DateTime.UtcNow
+        //    };
+
+        //    await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(suspiciousEvent);
+
+        //    // لو التقرير اتعمل قبل نتيجة الـ AI ما توصل، حدّث التقرير بنفس بيانات الـ AI.
+        //    var report = await _unitOfWork.Repository<ExamReport>()
+        //        .FindOneAsync(r => r.SessionId == sessionId);
+
+        //    if (report != null)
+        //    {
+        //        // متقللش الرقم لو وصلت نتيجة قديمة/ناقصة، وخلي اللينك القديم لو الجديد فاضي.
+        //        report.CheatingCount = Math.Max(report.CheatingCount, dto.CheatingCount);
+
+        //        if (HasRealScreenshotsUrl(screenshotsUrl))
+        //        {
+        //            report.ScreenshotsUrl = screenshotsUrl;
+        //        }
+        //        else if (string.IsNullOrWhiteSpace(report.ScreenshotsUrl))
+        //        {
+        //            report.ScreenshotsUrl = "Not Available";
+        //        }
+
+        //        report.UpdatedAt = DateTime.UtcNow;
+        //        _unitOfWork.Repository<ExamReport>().Update(report);
+        //    }
+
+        //    await _unitOfWork.CompleteAsync();
+
+        //    return Ok(new
+        //    {
+        //        Message = "AI results saved successfully",
+        //        SessionId = sessionId,
+        //        CheatingCount = dto.CheatingCount,
+        //        ScreenshotsUrl = screenshotsUrl
+        //    });
+        //}
+
+        // الطالب يسلم الامتحان
 
         [HttpPost("{sessionId}/ai-result")]
         public async Task<IActionResult> ReceiveAiResult(int sessionId, AiResultDto dto)
@@ -106,7 +311,6 @@ namespace GP.APIs.Controllers
                 .GetByIdAsync(sessionId);
 
             if (session == null) return NotFound("Session not found");
-            if (session.Status != "InProgress") return BadRequest("Session is not active");
 
             var student = await _unitOfWork.Repository<Student>()
                 .FindOneAsync(s => s.StudentUniversityID == dto.StudentUniversityID);
@@ -116,135 +320,60 @@ namespace GP.APIs.Controllers
             var studentUser = await _unitOfWork.Repository<User>()
                 .GetByIdAsync(student.UserId);
 
-            var suspiciousEvent = new SuspiciousEvent
-            {
-                SessionId = sessionId,
-                StudentUniversityID = dto.StudentUniversityID,
-                StudentName = studentUser?.FullName ?? "Unknown",
-                CheatingCount = dto.CheatingCount,
-                ScreenshotsUrl = dto.ScreenshotsUrl,
-                Timestamp = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            };
+            var screenshotsUrl = NormalizeScreenshotsUrl(dto.ScreenshotsUrl);
 
-            await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(suspiciousEvent);
+            // شوف لو في event موجود لنفس الـ Session
+            var existingEvent = await _unitOfWork.Repository<SuspiciousEvent>()
+                .FindOneAsync(s => s.SessionId == sessionId);
+
+            if (existingEvent != null)
+            {
+                // عدّل الموجود بدل ما تضيف جديد
+                existingEvent.CheatingCount = Math.Max(existingEvent.CheatingCount, dto.CheatingCount);
+                if (HasRealScreenshotsUrl(screenshotsUrl))
+                    existingEvent.ScreenshotsUrl = screenshotsUrl;
+                existingEvent.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Repository<SuspiciousEvent>().Update(existingEvent);
+            }
+            else
+            {
+                // ضيف جديد لو مفيش
+                var suspiciousEvent = new SuspiciousEvent
+                {
+                    SessionId = sessionId,
+                    StudentUniversityID = dto.StudentUniversityID,
+                    StudentName = studentUser?.FullName ?? "Unknown",
+                    CheatingCount = dto.CheatingCount,
+                    ScreenshotsUrl = screenshotsUrl,
+                    Timestamp = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
+                };
+                await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(suspiciousEvent);
+            }
+
+            // حدّث الـ Report لو موجود
+            var report = await _unitOfWork.Repository<ExamReport>()
+                .FindOneAsync(r => r.SessionId == sessionId);
+
+            if (report != null)
+            {
+                report.CheatingCount = Math.Max(report.CheatingCount, dto.CheatingCount);
+                if (HasRealScreenshotsUrl(screenshotsUrl))
+                    report.ScreenshotsUrl = screenshotsUrl;
+                report.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Repository<ExamReport>().Update(report);
+            }
+
             await _unitOfWork.CompleteAsync();
 
-            return Ok(new { Message = "AI results saved successfully" });
+            return Ok(new
+            {
+                Message = "AI results saved successfully",
+                SessionId = sessionId,
+                CheatingCount = dto.CheatingCount,
+                ScreenshotsUrl = screenshotsUrl
+            });
         }
-
-
-        // الـ Frontend بيبعت Browser Event
-        //[HttpPost("{sessionId}/browser-event")]
-        //public async Task<IActionResult> ReceiveBrowserEvent(int sessionId, BrowserEventDto dto)
-        //{
-        //    var session = await _unitOfWork.Repository<ExamSession>()
-        //        .GetByIdAsync(sessionId);
-
-        //    if (session == null) return NotFound("Session not found");
-        //    if (session.Status != "InProgress") return BadRequest("Session is not active");
-
-        //    if (!Enum.TryParse<EventType>(dto.EventType, out var eventType))
-        //        return BadRequest("Invalid event type");
-
-        //    var browserEvent = new SuspiciousEvent
-        //    {
-        //        SessionId = sessionId,
-        //        EventType = eventType,
-        //        RiskScoreContribution = 0.1m,
-        //        Confidence = 1.0,
-        //        Source = "Browser",
-        //        MetadataJson = dto.MetadataJson,
-        //        Timestamp = DateTime.UtcNow,
-        //        CreatedAt = DateTime.UtcNow
-        //    };
-
-        //    await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(browserEvent);
-
-
-        //    session.UpdatedAt = DateTime.UtcNow;
-
-        //    _unitOfWork.Repository<ExamSession>().Update(session);
-        //    await _unitOfWork.CompleteAsync();
-
-        //    return Ok(new { Message = "Browser Event saved successfully" });
-        //}
-
-        // الطالب يسلم الامتحان
-        //[HttpPost("{sessionId}/submit")]
-        //public async Task<IActionResult> Submit(int sessionId, SubmitExamDto dto)
-        //{
-        //    var session = await _unitOfWork.Repository<ExamSession>()
-        //        .GetByIdAsync(sessionId);
-
-        //    if (session == null) return NotFound("Session not found");
-        //    if (session.Status != "InProgress") return BadRequest("Session already submitted");
-
-        //    int correct = 0;
-        //    int total = dto.Answers.Count;
-
-        //    foreach (var answer in dto.Answers)
-        //    {
-        //        var question = await _unitOfWork.Repository<Question>()
-        //            .GetByIdAsync(answer.QuestionId);
-
-        //        if (question == null) continue;
-
-        //        var isCorrect = question.CorrectAnswer == answer.SelectedAnswer;
-        //        if (isCorrect) correct++;
-
-        //        var studentAnswer = new StudentAnswer
-        //        {
-        //            SessionId = sessionId,
-        //            QuestionId = answer.QuestionId,
-        //            SelectedAnswer = answer.SelectedAnswer,
-        //            IsCorrect = isCorrect,
-        //            AnsweredAt = DateTime.UtcNow,
-        //            CreatedAt = DateTime.UtcNow
-        //        };
-
-        //        await _unitOfWork.Repository<StudentAnswer>().AddAsync(studentAnswer);
-        //    }
-
-        //    session.Status = "Completed";
-        //    session.EndTime = DateTime.UtcNow;
-        //    session.UpdatedAt = DateTime.UtcNow;
-        //    _unitOfWork.Repository<ExamSession>().Update(session);
-
-        //    var exam = await _unitOfWork.Repository<Exam>()
-        //        .GetByIdAsync(session.ExamId);
-
-        //    var instructor = await _unitOfWork.Repository<Instructor>()
-        //        .GetByIdAsync(exam.InstructorId);
-
-        //    var report = new ExamReport
-        //    {
-        //        SessionId = sessionId,
-        //        InstructorId = instructor.Id,
-        //        FinalRiskScore = session.FinalRiskScore,
-        //        RiskLevel = session.RiskLevel,
-        //        TotalQuestions = total,
-        //        CorrectAnswers = correct,
-        //        ScorePercent = total > 0 ? Math.Round((decimal)correct / total * 100, 2) : 0,
-        //        Status = "Pending",
-        //        Notes = "",
-        //        GeneratedAt = DateTime.UtcNow,
-        //        CreatedAt = DateTime.UtcNow
-        //    };
-
-        //    await _unitOfWork.Repository<ExamReport>().AddAsync(report);
-        //    await _unitOfWork.CompleteAsync();
-
-        //    return Ok(new
-        //    {
-        //        SessionId = sessionId,
-        //        TotalQuestions = total,
-        //        CorrectAnswers = correct,
-        //        ScorePercent = report.ScorePercent,
-        //        RiskScore = session.FinalRiskScore,
-        //        RiskLevel = session.RiskLevel
-        //    });
-        //}
 
         [HttpPost("{sessionId}/submit")]
         public async Task<IActionResult> Submit(int sessionId, SubmitExamDto dto)
@@ -252,84 +381,438 @@ namespace GP.APIs.Controllers
             var session = await _unitOfWork.Repository<ExamSession>()
                 .GetByIdAsync(sessionId);
 
-            if (session == null) return NotFound("Session not found");
-            if (session.Status != "InProgress") return BadRequest("Session already submitted");
-
-            int correct = 0;
-            int total = dto.Answers.Count;
-
-            // 1. معالجة الإجابات (نفس الكود بتاعك)
-            foreach (var answer in dto.Answers)
+            if (session == null)
             {
-                var question = await _unitOfWork.Repository<Question>().GetByIdAsync(answer.QuestionId);
-                if (question == null) continue;
-
-                var isCorrect = question.CorrectAnswer == answer.SelectedAnswer;
-                if (isCorrect) correct++;
-
-                var studentAnswer = new StudentAnswer
+                return NotFound(new
                 {
-                    SessionId = sessionId,
-                    QuestionId = answer.QuestionId,
-                    SelectedAnswer = answer.SelectedAnswer,
-                    IsCorrect = isCorrect,
-                    AnsweredAt = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow
-                };
-                await _unitOfWork.Repository<StudentAnswer>().AddAsync(studentAnswer);
+                    success = false,
+                    message = "Session not found"
+                });
             }
 
-            // 2. تحديث حالة الـ Session
+            if (session.Status != "InProgress")
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Session already submitted",
+                    status = session.Status
+                });
+            }
+
+            var examQuestions = (await _unitOfWork.Repository<Question>()
+                .FindAsync(q => q.ExamId == session.ExamId))
+                .OrderBy(q => q.OrderIndex)
+                .ToList();
+
+            if (!examQuestions.Any())
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "No questions found for this exam"
+                });
+            }
+
+            var submittedAnswers = (dto.Answers ?? new List<SubmitAnswerDto>())
+                .Where(a => a.QuestionId > 0)
+                .GroupBy(a => a.QuestionId)
+                .ToDictionary(g => g.Key, g => g.Last());
+
+            var oldAnswers = await _unitOfWork.Repository<StudentAnswer>()
+                .FindAsync(a => a.SessionId == sessionId);
+
+            var oldAnswerQuestionIds = oldAnswers
+                .Select(a => a.QuestionId)
+                .ToHashSet();
+
+            int correct = 0;
+            int total = examQuestions.Count;
+
+            foreach (var question in examQuestions)
+            {
+                submittedAnswers.TryGetValue(question.Id, out var submittedAnswer);
+
+                var selectedAnswer = submittedAnswer?.SelectedAnswer;
+
+                if (string.IsNullOrWhiteSpace(selectedAnswer))
+                {
+                    selectedAnswer = "Not Answered";
+                }
+
+                var isNotAnswered = selectedAnswer.Equals("Not Answered", StringComparison.OrdinalIgnoreCase);
+                var isCorrect = !isNotAnswered &&
+                                !string.IsNullOrWhiteSpace(question.CorrectAnswer) &&
+                                question.CorrectAnswer.Equals(selectedAnswer, StringComparison.OrdinalIgnoreCase);
+
+                if (isCorrect)
+                {
+                    correct++;
+                }
+
+                if (!oldAnswerQuestionIds.Contains(question.Id))
+                {
+                    var studentAnswer = new StudentAnswer
+                    {
+                        SessionId = sessionId,
+                        QuestionId = question.Id,
+                        SelectedAnswer = selectedAnswer,
+                        IsCorrect = isCorrect,
+                        AnsweredAt = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    await _unitOfWork.Repository<StudentAnswer>().AddAsync(studentAnswer);
+                }
+            }
+
             session.Status = "Completed";
             session.EndTime = DateTime.UtcNow;
             session.UpdatedAt = DateTime.UtcNow;
             _unitOfWork.Repository<ExamSession>().Update(session);
 
-            // 3. إنشاء التقرير النهائي (مع إضافة أرقام الـ Browser Events)
             var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(session.ExamId);
-            var instructor = await _unitOfWork.Repository<Instructor>().GetByIdAsync(exam.InstructorId);
-
-            var report = new ExamReport
+            if (exam == null)
             {
-                SessionId = sessionId,
-                InstructorId = instructor.Id,
-                TotalQuestions = total,
-                CorrectAnswers = correct,
-                ScorePercent = total > 0 ? Math.Round((decimal)correct / total * 100, 2) : 0,
-                Status = "Pending",
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Exam not found for this session"
+                });
+            }
 
-                Notes = $"Leaving Exam Counter: {dto.LeavingExam}.",
+            var instructor = await _unitOfWork.Repository<Instructor>().GetByIdAsync(exam.InstructorId);
+            var student = await _unitOfWork.Repository<Student>().GetByIdAsync(session.StudentId);
 
-                GeneratedAt = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            };
+            if (instructor == null || student == null)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Instructor or student data was not found"
+                });
+            }
 
-            await _unitOfWork.Repository<ExamReport>().AddAsync(report);
+            var studentUser = await _unitOfWork.Repository<User>().GetByIdAsync(student.UserId);
+            var instructorUser = await _unitOfWork.Repository<User>().GetByIdAsync(instructor.UserId);
+
+            var sessionEvents = (await _unitOfWork.Repository<SuspiciousEvent>()
+                .FindAsync(e => e.SessionId == sessionId))
+                .OrderByDescending(e => e.Timestamp)
+                .ToList();
+
+            var latestAiEvent = sessionEvents.FirstOrDefault();
+            var latestScreenshotsEvent = sessionEvents
+                .FirstOrDefault(e => HasRealScreenshotsUrl(e.ScreenshotsUrl));
+
+            // استخدم أكبر CheatingCount محفوظ للـ session عشان نتيجة متأخرة أو ناقصة متصفرش التقرير.
+            var cheatingCount = sessionEvents.Any() ? sessionEvents.Max(e => e.CheatingCount) : 0;
+            var screenshotsUrl = NormalizeScreenshotsUrl(latestScreenshotsEvent?.ScreenshotsUrl ?? latestAiEvent?.ScreenshotsUrl);
+
+            // بعد ما تخلص الـ answers وقبل ما تعمل الـ Report
+            var existingEvent = await _unitOfWork.Repository<SuspiciousEvent>()
+                .FindOneAsync(s => s.SessionId == sessionId);
+
+            if (existingEvent == null)
+            {
+                // الـ AI مبعتش — اعمل Event بالبيانات المتاحة من الفرونت
+                var suspiciousEvent = new SuspiciousEvent
+                {
+                    SessionId = sessionId,
+                    StudentUniversityID = student.StudentUniversityID,
+                    StudentName = studentUser?.FullName ?? "Unknown",
+                    CheatingCount = 0,               // الـ AI لسه مبعتش
+                    LeavingExamCount = dto.LeavingExam,
+                    ScreenshotsUrl = "Not Available", // الـ AI لسه مبعتش
+                    Timestamp = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
+                };
+                await _unitOfWork.Repository<SuspiciousEvent>().AddAsync(suspiciousEvent);
+            }
+            else
+            {
+                // الـ AI بعت بالفعل — ضيف بس الـ LeavingExamCount
+                existingEvent.LeavingExamCount = dto.LeavingExam;
+                existingEvent.UpdatedAt = DateTime.UtcNow;
+                _unitOfWork.Repository<SuspiciousEvent>().Update(existingEvent);
+            }
+
+
+            var existingReport = await _unitOfWork.Repository<ExamReport>()
+                .FindOneAsync(r => r.SessionId == sessionId);
+
+            var scorePercent = total > 0 ? Math.Round((decimal)correct / total * 100, 2) : 0;
+
+            if (existingReport == null)
+            {
+                var report = new ExamReport
+                {
+                    SessionId = sessionId,
+                    InstructorId = instructor.Id,
+
+                    StudentName = studentUser?.FullName ?? "Unknown",
+                    StudentUniversityId = student.StudentUniversityID,
+
+                    InstructorName = instructorUser?.FullName ?? "Unknown",
+                    InstructorCode = instructor.InstructorCode,
+
+                    TotalQuestions = total,
+                    CorrectAnswers = correct,
+                    ScorePercent = scorePercent,
+
+                    CheatingCount = cheatingCount,
+                    ScreenshotsUrl = screenshotsUrl,
+
+                    Status = "Pending",
+                    Notes = $"Leaving Exam Counter: {dto.LeavingExam}.",
+
+                    GeneratedAt = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                await _unitOfWork.Repository<ExamReport>().AddAsync(report);
+                existingReport = report;
+            }
+            else
+            {
+                existingReport.TotalQuestions = total;
+                existingReport.CorrectAnswers = correct;
+                existingReport.ScorePercent = scorePercent;
+                existingReport.CheatingCount = cheatingCount;
+                existingReport.ScreenshotsUrl = screenshotsUrl;
+                existingReport.Notes = $"Leaving Exam Counter: {dto.LeavingExam}.";
+                existingReport.Status = string.IsNullOrWhiteSpace(existingReport.Status) ? "Pending" : existingReport.Status;
+                existingReport.UpdatedAt = DateTime.UtcNow;
+
+                _unitOfWork.Repository<ExamReport>().Update(existingReport);
+            }
+
             await _unitOfWork.CompleteAsync();
 
             return Ok(new
             {
+                success = true,
                 SessionId = sessionId,
                 TotalQuestions = total,
                 CorrectAnswers = correct,
-                ScorePercent = report.ScorePercent,
-                Notes = dto.LeavingExam,
+                ScorePercent = existingReport.ScorePercent,
+                CheatingCount = existingReport.CheatingCount,
+                ScreenshotsUrl = existingReport.ScreenshotsUrl,
+                LeavingExam = dto.LeavingExam
             });
         }
 
+        //[HttpPost("{sessionId}/submit")]
+        //public async Task<IActionResult> Submit(int sessionId, SubmitExamDto dto)
+        //{
+        //    var session = await _unitOfWork.Repository<ExamSession>()
+        //        .GetByIdAsync(sessionId);
+
+        //    if (session == null)
+        //    {
+        //        return NotFound(new
+        //        {
+        //            success = false,
+        //            message = "Session not found"
+        //        });
+        //    }
+
+        //    if (session.Status != "InProgress")
+        //    {
+        //        return BadRequest(new
+        //        {
+        //            success = false,
+        //            message = "Session already submitted",
+        //            status = session.Status
+        //        });
+        //    }
+
+        //    var examQuestions = (await _unitOfWork.Repository<Question>()
+        //        .FindAsync(q => q.ExamId == session.ExamId))
+        //        .OrderBy(q => q.OrderIndex)
+        //        .ToList();
+
+        //    if (!examQuestions.Any())
+        //    {
+        //        return BadRequest(new
+        //        {
+        //            success = false,
+        //            message = "No questions found for this exam"
+        //        });
+        //    }
+
+        //    var submittedAnswers = (dto.Answers ?? new List<SubmitAnswerDto>())
+        //        .Where(a => a.QuestionId > 0)
+        //        .GroupBy(a => a.QuestionId)
+        //        .ToDictionary(g => g.Key, g => g.Last());
+
+        //    var oldAnswers = await _unitOfWork.Repository<StudentAnswer>()
+        //        .FindAsync(a => a.SessionId == sessionId);
+
+        //    var oldAnswerQuestionIds = oldAnswers
+        //        .Select(a => a.QuestionId)
+        //        .ToHashSet();
+
+        //    int correct = 0;
+        //    int total = examQuestions.Count;
+
+        //    foreach (var question in examQuestions)
+        //    {
+        //        submittedAnswers.TryGetValue(question.Id, out var submittedAnswer);
+
+        //        var selectedAnswer = submittedAnswer?.SelectedAnswer;
+
+        //        if (string.IsNullOrWhiteSpace(selectedAnswer))
+        //        {
+        //            selectedAnswer = "Not Answered";
+        //        }
+
+        //        var isNotAnswered = selectedAnswer.Equals("Not Answered", StringComparison.OrdinalIgnoreCase);
+        //        var isCorrect = !isNotAnswered &&
+        //                        !string.IsNullOrWhiteSpace(question.CorrectAnswer) &&
+        //                        question.CorrectAnswer.Equals(selectedAnswer, StringComparison.OrdinalIgnoreCase);
+
+        //        if (isCorrect)
+        //        {
+        //            correct++;
+        //        }
+
+        //        if (!oldAnswerQuestionIds.Contains(question.Id))
+        //        {
+        //            var studentAnswer = new StudentAnswer
+        //            {
+        //                SessionId = sessionId,
+        //                QuestionId = question.Id,
+        //                SelectedAnswer = selectedAnswer,
+        //                IsCorrect = isCorrect,
+        //                AnsweredAt = DateTime.UtcNow,
+        //                CreatedAt = DateTime.UtcNow
+        //            };
+
+        //            await _unitOfWork.Repository<StudentAnswer>().AddAsync(studentAnswer);
+        //        }
+        //    }
+
+        //    session.Status = "Completed";
+        //    session.EndTime = DateTime.UtcNow;
+        //    session.UpdatedAt = DateTime.UtcNow;
+        //    _unitOfWork.Repository<ExamSession>().Update(session);
+
+        //    var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(session.ExamId);
+        //    if (exam == null)
+        //    {
+        //        return BadRequest(new
+        //        {
+        //            success = false,
+        //            message = "Exam not found for this session"
+        //        });
+        //    }
+
+        //    var instructor = await _unitOfWork.Repository<Instructor>().GetByIdAsync(exam.InstructorId);
+        //    var student = await _unitOfWork.Repository<Student>().GetByIdAsync(session.StudentId);
+
+        //    if (instructor == null || student == null)
+        //    {
+        //        return BadRequest(new
+        //        {
+        //            success = false,
+        //            message = "Instructor or student data was not found"
+        //        });
+        //    }
+
+        //    var studentUser = await _unitOfWork.Repository<User>().GetByIdAsync(student.UserId);
+        //    var instructorUser = await _unitOfWork.Repository<User>().GetByIdAsync(instructor.UserId);
+
+        //    var sessionEvents = (await _unitOfWork.Repository<SuspiciousEvent>()
+        //        .FindAsync(e => e.SessionId == sessionId))
+        //        .OrderByDescending(e => e.Timestamp)
+        //        .ToList();
+
+        //    var latestAiEvent = sessionEvents.FirstOrDefault();
+        //    var latestScreenshotsEvent = sessionEvents
+        //        .FirstOrDefault(e => HasRealScreenshotsUrl(e.ScreenshotsUrl));
+
+        //    // استخدم أكبر CheatingCount محفوظ للـ session عشان نتيجة متأخرة أو ناقصة متصفرش التقرير.
+        //    var cheatingCount = sessionEvents.Any() ? sessionEvents.Max(e => e.CheatingCount) : 0;
+        //    var screenshotsUrl = NormalizeScreenshotsUrl(latestScreenshotsEvent?.ScreenshotsUrl ?? latestAiEvent?.ScreenshotsUrl);
+
+        //    var existingReport = await _unitOfWork.Repository<ExamReport>()
+        //        .FindOneAsync(r => r.SessionId == sessionId);
+
+        //    var scorePercent = total > 0 ? Math.Round((decimal)correct / total * 100, 2) : 0;
+
+        //    if (existingReport == null)
+        //    {
+        //        var report = new ExamReport
+        //        {
+        //            SessionId = sessionId,
+        //            InstructorId = instructor.Id,
+
+        //            StudentName = studentUser?.FullName ?? "Unknown",
+        //            StudentUniversityId = student.StudentUniversityID,
+
+        //            InstructorName = instructorUser?.FullName ?? "Unknown",
+        //            InstructorCode = instructor.InstructorCode,
+
+        //            TotalQuestions = total,
+        //            CorrectAnswers = correct,
+        //            ScorePercent = scorePercent,
+
+        //            CheatingCount = cheatingCount,
+        //            ScreenshotsUrl = screenshotsUrl,
+
+        //            Status = "Pending",
+        //            Notes = $"Leaving Exam Counter: {dto.LeavingExam}.",
+
+        //            GeneratedAt = DateTime.UtcNow,
+        //            CreatedAt = DateTime.UtcNow
+        //        };
+
+        //        await _unitOfWork.Repository<ExamReport>().AddAsync(report);
+        //        existingReport = report;
+        //    }
+        //    else
+        //    {
+        //        existingReport.TotalQuestions = total;
+        //        existingReport.CorrectAnswers = correct;
+        //        existingReport.ScorePercent = scorePercent;
+        //        existingReport.CheatingCount = cheatingCount;
+        //        existingReport.ScreenshotsUrl = screenshotsUrl;
+        //        existingReport.Notes = $"Leaving Exam Counter: {dto.LeavingExam}.";
+        //        existingReport.Status = string.IsNullOrWhiteSpace(existingReport.Status) ? "Pending" : existingReport.Status;
+        //        existingReport.UpdatedAt = DateTime.UtcNow;
+
+        //        _unitOfWork.Repository<ExamReport>().Update(existingReport);
+        //    }
+
+        //    await _unitOfWork.CompleteAsync();
+
+        //    return Ok(new
+        //    {
+        //        success = true,
+        //        SessionId = sessionId,
+        //        TotalQuestions = total,
+        //        CorrectAnswers = correct,
+        //        ScorePercent = existingReport.ScorePercent,
+        //        CheatingCount = existingReport.CheatingCount,
+        //        ScreenshotsUrl = existingReport.ScreenshotsUrl,
+        //        LeavingExam = dto.LeavingExam
+        //    });
+        //}
 
         // الدكتور يشوف Sessions
+        
+        
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            // هنجيب كل السيشينز مع بيانات الطلاب والامتحانات
             var sessions = await _unitOfWork.Repository<ExamSession>()
                 .GetAllAsync(s => s.Student.User, s => s.Exam);
 
             var result = sessions.Select(s => new
             {
                 s.Id,
-                StudentName = $"{s.Student.User.FullName}",
+                StudentName = s.Student.User.FullName,
                 ExamSubject = s.Exam.Subject,
                 s.Status,
                 s.StartTime
@@ -338,20 +821,20 @@ namespace GP.APIs.Controllers
             return Ok(result);
         }
 
-
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
-            // بنستخدم الـ Include عشان نجيب الطالب واليوزر والامتحان في خبطة واحدة
             var session = await _unitOfWork.Repository<ExamSession>()
                 .GetByIdAsync(id,
                     s => s.Student.User,
                     s => s.Exam
                 );
 
-            if (session == null) return NotFound();
+            if (session == null)
+            {
+                return NotFound();
+            }
 
-            // نرجع Object فيه كل اللي الطالب محتاجه وهو بيمتحن
             return Ok(new
             {
                 session.Id,
@@ -360,11 +843,28 @@ namespace GP.APIs.Controllers
                 ExamDuration = session.Exam?.DurationMinutes,
                 session.Status,
                 session.StartTime,
-                StudentName = session.Student?.User != null
-                    ? $"{session.Student.User.FullName}"
-                    : "Unknown",
+                StudentName = session.Student?.User != null ? session.Student.User.FullName : "Unknown",
                 UniversityId = session.Student?.StudentUniversityID,
             });
+        }
+
+        private static bool HasRealScreenshotsUrl(string? screenshotsUrl)
+        {
+            if (string.IsNullOrWhiteSpace(screenshotsUrl)) return false;
+
+            var value = screenshotsUrl.Trim();
+            return !value.Equals("Not Available", StringComparison.OrdinalIgnoreCase)
+                   && value != "-";
+        }
+
+        private static string NormalizeScreenshotsUrl(string? screenshotsUrl)
+        {
+            if (string.IsNullOrWhiteSpace(screenshotsUrl))
+            {
+                return "Not Available";
+            }
+
+            return screenshotsUrl.Trim();
         }
     }
 }

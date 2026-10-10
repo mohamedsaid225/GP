@@ -10,10 +10,12 @@ namespace GP.Core.Entities
     {
         public int SessionId { get; set; }
         public int InstructorId { get; set; }
+        public string InstructorName { get; set; }
+        public string InstructorCode { get; set; }
+        public string StudentName { get; set; }
+        public string StudentUniversityId { get; set; }
         public int TotalQuestions { get; set; }
         public int CorrectAnswers { get; set; }
-        //public decimal FinalRiskScore { get; set; }
-        //public string RiskLevel { get; set; }
         public int CheatingCount { get; set; }
         public string ScreenshotsUrl { get; set; }
         public decimal ScorePercent { get; set; }

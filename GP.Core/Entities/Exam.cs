@@ -16,6 +16,8 @@ namespace GP.Core.Entities
         public string College { get; set; }
         public int Level { get; set; }
         public int DurationMinutes { get; set; }
+        public DateTime? ActiveFrom { get; set; }
+        public DateTime? ActiveTo { get; set; }
         public string Status { get; set; }
 
         // Navigation

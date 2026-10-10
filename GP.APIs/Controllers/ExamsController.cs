@@ -1,284 +1,447 @@
-﻿    using GP.Core.DTOs;
-    using GP.Core.Entities;
-    using GP.Core.Interfaces;
-    using Microsoft.AspNetCore.Authorization;
-    using Microsoft.AspNetCore.Mvc;
+using GP.Core.DTOs;
+using GP.Core.Entities;
+using GP.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
-    namespace GP.APIs.Controllers
+namespace GP.APIs.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    public class ExamsController : BaseApiController
     {
-        [Route("api/[controller]")]
-        [ApiController]
-        public class ExamsController : BaseApiController
+        private readonly IUnitOfWork _unitOfWork;
+
+        public ExamsController(IUnitOfWork unitOfWork)
         {
-            private readonly IUnitOfWork _unitOfWork;
+            _unitOfWork = unitOfWork;
+        }
 
-            public ExamsController(IUnitOfWork unitOfWork)
+        private static DateTime GetScheduleNow()
+        {
+            // ActiveFrom / ActiveTo are stored as the local exam schedule selected by the doctor.
+            // Do not compare them with UtcNow, otherwise the exam appears/starts hours late or early.
+            return DateTime.Now;
+        }
+
+        private static DateTime? NormalizeScheduleTime(DateTime? value)
+        {
+            if (!value.HasValue) return null;
+
+            var dateTime = value.Value;
+
+            // If an older frontend sends a UTC ISO value, convert it back to local time once.
+            if (dateTime.Kind == DateTimeKind.Utc)
             {
-                _unitOfWork = unitOfWork;
+                dateTime = dateTime.ToLocalTime();
             }
 
-            // الطالب يشوف الامتحانات المتاحة
-            [HttpGet("available")]
-            public async Task<IActionResult> GetAvailable()
+            return DateTime.SpecifyKind(dateTime, DateTimeKind.Unspecified);
+        }
+
+        private static bool IsInsideAvailabilityWindow(Exam exam)
+        {
+            var now = GetScheduleNow();
+
+            if (exam.ActiveFrom.HasValue && now < exam.ActiveFrom.Value) return false;
+            if (exam.ActiveTo.HasValue && now > exam.ActiveTo.Value) return false;
+
+            return true;
+        }
+
+        private IActionResult? ValidateAvailabilityWindow(DateTime? activeFrom, DateTime? activeTo)
+        {
+            // Allow old exams/old clients to omit both values, but never allow only one side.
+            if (activeFrom.HasValue != activeTo.HasValue)
             {
-                var exams = await _unitOfWork.Repository<Exam>()
-                    .FindAsync(e => e.Status == "Active");
-
-                var result = new List<ExamDto>();
-
-                foreach (var exam in exams)
+                return BadRequest(new
                 {
-                    var instructor = await _unitOfWork.Repository<Instructor>()
-                        .GetByIdAsync(exam.InstructorId);
-
-                    var user = instructor != null
-                        ? await _unitOfWork.Repository<User>().GetByIdAsync(instructor.UserId)
-                        : null;
-
-                    result.Add(new ExamDto
-                    {
-                        Id = exam.Id,
-                        Code = exam.Code,
-                        Subject = exam.Subject,
-                        Department = exam.Department,
-                        University = exam.University,
-                        College = exam.College,
-                        Level = exam.Level,
-                        DurationMinutes = exam.DurationMinutes,
-                        Status = exam.Status,
-                        InstructorName = user != null ? $"{user.FullName}" : "Unknown"
-                    });
-                }
-
-                return Ok(result);
-            }
-
-            // الدكتور يضيف امتحان
-            [HttpPost]
-            [Authorize(Roles = "Instructor")]
-            public async Task<IActionResult> Create(CreateExamDto dto)
-            {
-                var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-                if (userIdClaim == null) return Unauthorized();
-
-                var userId = int.Parse(userIdClaim.Value);
-                var instructor = await _unitOfWork.Repository<Instructor>()
-                    .FindOneAsync(i => i.UserId == userId);
-
-                if (instructor == null) return Unauthorized("Not an instructor");
-
-                var exam = new Exam
-                {
-                    InstructorId = instructor.Id,
-                    Code = dto.Code,
-                    Subject = dto.Subject,
-                    Department = dto.Department,
-                    University = dto.University,
-                    College = dto.College,
-                    Level = dto.Level,
-                    DurationMinutes = dto.DurationMinutes,
-                    Status = "Inactive", // هبقي اعدلها لما عمرو يخلص ال Button
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                await _unitOfWork.Repository<Exam>().AddAsync(exam);
-                await _unitOfWork.CompleteAsync();
-
-                // رجّع DTO بس مش الـ Entity
-                return CreatedAtAction(nameof(GetById), new { id = exam.Id }, new ExamDto
-                {
-                    Id = exam.Id,
-                    Code = exam.Code,
-                    Subject = exam.Subject,
-                    Department = exam.Department,
-                    University = exam.University,
-                    College = exam.College,
-                    Level = exam.Level,
-                    DurationMinutes = exam.DurationMinutes,
-                    Status = exam.Status,
-                    InstructorName = $"{User.FindFirst(System.Security.Claims.ClaimTypes.GivenName)?.Value}"
+                    message = "Both activeFrom and activeTo are required when setting exam availability."
                 });
             }
-        
-            // الدكتور يشوف امتحاناته
-            [HttpGet("my-exams")]
-            [Authorize(Roles = "Instructor")]
-            public async Task<IActionResult> GetMyExams()
+
+            if (activeFrom.HasValue && activeTo.HasValue && activeTo.Value <= activeFrom.Value)
             {
-                var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-                if (userIdClaim == null) return Unauthorized();
-
-                var userId = int.Parse(userIdClaim.Value);
-                var instructor = await _unitOfWork.Repository<Instructor>()
-                    .FindOneAsync(i => i.UserId == userId);
-
-                if (instructor == null) return Unauthorized();
-
-                var exams = await _unitOfWork.Repository<Exam>()
-                    .FindAsync(e => e.InstructorId == instructor.Id);
-
-                var result = new List<object>();
-
-                foreach (var exam in exams)
+                return BadRequest(new
                 {
-                    var questions = await _unitOfWork.Repository<Question>()
-                        .FindAsync(q => q.ExamId == exam.Id);
+                    message = "activeTo must be after activeFrom."
+                });
+            }
 
-                    result.Add(new
+            return null;
+        }
+
+        private static ExamDto ToExamDto(Exam exam, string instructorName)
+        {
+            return new ExamDto
+            {
+                Id = exam.Id,
+                Code = exam.Code,
+                Subject = exam.Subject,
+                Department = exam.Department,
+                University = exam.University,
+                College = exam.College,
+                Level = exam.Level,
+                DurationMinutes = exam.DurationMinutes,
+                ActiveFrom = exam.ActiveFrom,
+                ActiveTo = exam.ActiveTo,
+                Status = exam.Status,
+                InstructorName = instructorName
+            };
+        }
+
+        // الطالب يشوف الامتحانات المتاحة أو المجدولة.
+        // تظهر قبل ActiveFrom كـ Scheduled، وتختفي فقط بعد ActiveTo أو لو الدكتور عملها Inactive.
+        [HttpGet("available")]
+        public async Task<IActionResult> GetAvailable()
+        {
+            var now = GetScheduleNow();
+
+            var exams = await _unitOfWork.Repository<Exam>()
+                .FindAsync(e => e.Status == "Active"
+                    && (!e.ActiveTo.HasValue || e.ActiveTo.Value >= now));
+
+            var result = new List<ExamDto>();
+
+            foreach (var exam in exams)
+            {
+                var instructor = await _unitOfWork.Repository<Instructor>()
+                    .GetByIdAsync(exam.InstructorId);
+
+                var user = instructor != null
+                    ? await _unitOfWork.Repository<User>().GetByIdAsync(instructor.UserId)
+                    : null;
+
+                result.Add(ToExamDto(exam, user != null ? user.FullName : "Unknown"));
+            }
+
+            return Ok(result);
+        }
+
+        // الدكتور يضيف امتحان
+        [HttpPost]
+        [Authorize(Roles = "Instructor")]
+        public async Task<IActionResult> Create(CreateExamDto dto)
+        {
+
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var activeFrom = NormalizeScheduleTime(dto.ActiveFrom);
+            var activeTo = NormalizeScheduleTime(dto.ActiveTo);
+
+            var availabilityError = ValidateAvailabilityWindow(activeFrom, activeTo);
+            if (availabilityError != null) return availabilityError;
+
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim == null) return Unauthorized();
+
+            var userId = int.Parse(userIdClaim.Value);
+            var instructor = await _unitOfWork.Repository<Instructor>()
+                .FindOneAsync(i => i.UserId == userId);
+
+            if (instructor == null) return Unauthorized("Not an instructor");
+
+            if (!dto.University.Trim().Equals(instructor.University.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                !dto.College.Trim().Equals(instructor.College.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                !dto.Department.Trim().Equals(instructor.Department.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new
+                {
+                    message = "Exam university, college, and department must match your profile",
+                    yourUniversity = instructor.University,
+                    yourCollege = instructor.College,
+                    yourDepartment = instructor.Department
+                });
+            }
+
+            var exam = new Exam
+            {
+                InstructorId = instructor.Id,
+                Code = dto.Code,
+                Subject = dto.Subject,
+                Department = dto.Department,
+                University = dto.University,
+                College = dto.College,
+                Level = dto.Level,
+                DurationMinutes = dto.DurationMinutes,
+                ActiveFrom = activeFrom,
+                ActiveTo = activeTo,
+                // Active means the schedule can control visibility. Outside the window it still will not appear to students.
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.Repository<Exam>().AddAsync(exam);
+            await _unitOfWork.CompleteAsync();
+
+            var auditLog = new AuditLog
+            {
+                UserId = userId,
+                Action = "CreateExam",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                Details = $"Exam '{exam.Code}' created with active window from {exam.ActiveFrom:u} to {exam.ActiveTo:u}",
+                Timestamp = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _unitOfWork.Repository<AuditLog>().AddAsync(auditLog);
+            await _unitOfWork.CompleteAsync();
+
+            return CreatedAtAction(nameof(GetById), new { id = exam.Id }, ToExamDto(exam, User.FindFirst(System.Security.Claims.ClaimTypes.GivenName)?.Value ?? "Unknown"));
+        }
+
+        // الدكتور يشوف امتحاناته
+        [HttpGet("my-exams")]
+        [Authorize(Roles = "Instructor")]
+        public async Task<IActionResult> GetMyExams()
+        {
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim == null) return Unauthorized();
+
+            var userId = int.Parse(userIdClaim.Value);
+            var instructor = await _unitOfWork.Repository<Instructor>()
+                .FindOneAsync(i => i.UserId == userId);
+
+            if (instructor == null) return Unauthorized();
+
+            var exams = await _unitOfWork.Repository<Exam>()
+                .FindAsync(e => e.InstructorId == instructor.Id);
+
+            var result = new List<object>();
+
+            foreach (var exam in exams)
+            {
+                var questions = await _unitOfWork.Repository<Question>()
+                    .FindAsync(q => q.ExamId == exam.Id);
+
+                result.Add(new
+                {
+                    exam.Id,
+                    exam.Code,
+                    exam.Subject,
+                    exam.Department,
+                    exam.University,
+                    exam.College,
+                    exam.Level,
+                    exam.DurationMinutes,
+                    exam.ActiveFrom,
+                    exam.ActiveTo,
+                    exam.Status,
+                    IsCurrentlyAvailable = exam.Status == "Active" && IsInsideAvailabilityWindow(exam),
+                    exam.CreatedAt,
+                    Questions = questions.Select(q => new
                     {
-                        exam.Id,
-                        exam.Code,
-                        exam.Subject,
-                        exam.Department,
-                        exam.University,
-                        exam.College,
-                        exam.Level,
-                        exam.DurationMinutes,
-                        exam.Status,
-                        exam.CreatedAt,
-                        Questions = questions.Select(q => new
+                        q.Id,
+                        q.QuestionText,
+                        q.OptionA,
+                        q.OptionB,
+                        q.OptionC,
+                        q.OptionD,
+                        q.CorrectAnswer,
+                        q.OrderIndex
+                    })
+                });
+            }
+
+            return Ok(result);
+        }
+
+        // الدكتور يعدل امتحان
+        [HttpPut("{id}")]
+        [Authorize(Roles = "Instructor")]
+        public async Task<IActionResult> Update(int id, CreateExamDto dto)
+        {
+
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var activeFrom = NormalizeScheduleTime(dto.ActiveFrom);
+            var activeTo = NormalizeScheduleTime(dto.ActiveTo);
+
+            var availabilityError = ValidateAvailabilityWindow(activeFrom, activeTo);
+            if (availabilityError != null) return availabilityError;
+
+            var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
+            if (exam == null) return NotFound();
+
+            // تأكد إن الدكتور صاحب الامتحان
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim == null) return Unauthorized();
+
+            var userId = int.Parse(userIdClaim.Value);
+            var instructor = await _unitOfWork.Repository<Instructor>()
+                .FindOneAsync(i => i.UserId == userId);
+
+            if (instructor == null || exam.InstructorId != instructor.Id)
+                return Unauthorized("You don't own this exam");
+
+            if (!dto.University.Trim().Equals(instructor.University.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                !dto.College.Trim().Equals(instructor.College.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                !dto.Department.Trim().Equals(instructor.Department.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new
+                {
+                    message = "Exam university, college, and department must match your profile",
+                    yourUniversity = instructor.University,
+                    yourCollege = instructor.College,
+                    yourDepartment = instructor.Department
+                });
+            }
+
+            // عدّل بيانات الامتحان الأساسية
+            exam.Code = dto.Code;
+            exam.Subject = dto.Subject;
+            exam.Department = dto.Department;
+            exam.University = dto.University;
+            exam.College = dto.College;
+            exam.Level = dto.Level;
+            exam.DurationMinutes = dto.DurationMinutes;
+            exam.ActiveFrom = activeFrom;
+            exam.ActiveTo = activeTo;
+            exam.UpdatedAt = DateTime.UtcNow;
+
+            _unitOfWork.Repository<Exam>().Update(exam);
+
+            if (dto.Questions != null && dto.Questions.Any())
+            {
+                var existingQuestions = (await _unitOfWork.Repository<Question>()
+                    .FindAsync(q => q.ExamId == id))
+                    .OrderBy(q => q.OrderIndex)
+                    .ThenBy(q => q.Id)
+                    .ToList();
+
+                var incomingQuestions = dto.Questions
+                    .OrderBy(q => q.OrderIndex)
+                    .ToList();
+
+                for (int i = 0; i < incomingQuestions.Count; i++)
+                {
+                    var incoming = incomingQuestions[i];
+
+                    if (i < existingQuestions.Count)
+                    {
+                        // عدّل السؤال الموجود مكانه بدل ما تمسحه
+                        var existing = existingQuestions[i];
+
+                        existing.QuestionText = incoming.QuestionText;
+                        existing.OptionA = incoming.OptionA;
+                        existing.OptionB = incoming.OptionB;
+                        existing.OptionC = incoming.OptionC;
+                        existing.OptionD = incoming.OptionD;
+                        existing.CorrectAnswer = (incoming.CorrectAnswer ?? string.Empty).Trim().ToUpper();
+                        existing.OrderIndex = incoming.OrderIndex;
+                        existing.UpdatedAt = DateTime.UtcNow;
+
+                        _unitOfWork.Repository<Question>().Update(existing);
+                    }
+                    else
+                    {
+                        // ضيف الأسئلة الجديدة فقط
+                        var newQuestion = new Question
                         {
-                            q.Id,
-                            q.QuestionText,
-                            q.OptionA,
-                            q.OptionB,
-                            q.OptionC,
-                            q.OptionD,
-                            q.CorrectAnswer,
-                            q.OrderIndex
-                        })
-                    });
+                            ExamId = id,
+                            QuestionText = incoming.QuestionText,
+                            OptionA = incoming.OptionA,
+                            OptionB = incoming.OptionB,
+                            OptionC = incoming.OptionC,
+                            OptionD = incoming.OptionD,
+                            CorrectAnswer = (incoming.CorrectAnswer ?? string.Empty).Trim().ToUpper(),
+                            OrderIndex = incoming.OrderIndex,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        };
+
+                        await _unitOfWork.Repository<Question>().AddAsync(newQuestion);
+                    }
                 }
 
-                return Ok(result);
-            }
+                // لو الدكتور قلّل عدد الأسئلة:
+                // احذف السؤال الزائد فقط لو مفيش عليه إجابات طلاب.
+                // لو عليه StudentAnswers، سيبه عشان SQL Server مايرجعش FK error.
+                var removedQuestions = existingQuestions
+                    .Skip(incomingQuestions.Count)
+                    .ToList();
 
-            // الدكتور يعدل امتحان
-            //[HttpPut("{id}")]
-            //[Authorize(Roles = "Instructor")]
-            //public async Task<IActionResult> Update(int id, CreateExamDto dto)
-            //{
-            //    var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
-            //    if (exam == null) return NotFound();
-
-            //    exam.Code = dto.Code;
-            //    exam.Subject = dto.Subject;
-            //    exam.Department = dto.Department;
-            //    exam.University = dto.University;
-            //    exam.College = dto.College;
-            //    exam.Level = dto.Level;
-            //    exam.DurationMinutes = dto.DurationMinutes;
-            //    exam.UpdatedAt = DateTime.UtcNow;
-
-            //    _unitOfWork.Repository<Exam>().Update(exam);
-            //    await _unitOfWork.CompleteAsync();
-
-            //    return NoContent();
-            //}
-
-            [HttpPut("{id}")]
-            [Authorize(Roles = "Instructor")]
-            public async Task<IActionResult> Update(int id, CreateExamDto dto)
-            {
-                var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
-                if (exam == null) return NotFound();
-
-                // تأكد إن الدكتور صاحب الامتحان
-                var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-                var userId = int.Parse(userIdClaim.Value);
-                var instructor = await _unitOfWork.Repository<Instructor>()
-                    .FindOneAsync(i => i.UserId == userId);
-
-                if (instructor == null || exam.InstructorId != instructor.Id)
-                    return Unauthorized("You don't own this exam");
-
-                // عدّل بيانات الامتحان
-                exam.Code = dto.Code;
-                exam.Subject = dto.Subject;
-                exam.Department = dto.Department;
-                exam.University = dto.University;
-                exam.College = dto.College;
-                exam.Level = dto.Level;
-                exam.DurationMinutes = dto.DurationMinutes;
-                exam.UpdatedAt = DateTime.UtcNow;
-
-                _unitOfWork.Repository<Exam>().Update(exam);
-
-                // لو في أسئلة جديدة
-                if (dto.Questions != null && dto.Questions.Any())
+                foreach (var removedQuestion in removedQuestions)
                 {
-                    // امسح الأسئلة القديمة
-                    var oldQuestions = await _unitOfWork.Repository<Question>()
-                        .FindAsync(q => q.ExamId == id);
+                    var hasStudentAnswers = (await _unitOfWork.Repository<StudentAnswer>()
+                        .FindAsync(a => a.QuestionId == removedQuestion.Id))
+                        .Any();
 
-                    foreach (var q in oldQuestions)
-                        _unitOfWork.Repository<Question>().Delete(q);
-
-                    // ضيف الأسئلة الجديدة
-                    var newQuestions = dto.Questions.Select(q => new Question
+                    if (!hasStudentAnswers)
                     {
-                        ExamId = id,
-                        QuestionText = q.QuestionText,
-                        OptionA = q.OptionA,
-                        OptionB = q.OptionB,
-                        OptionC = q.OptionC,
-                        OptionD = q.OptionD,
-                        CorrectAnswer = q.CorrectAnswer.ToUpper(),
-                        OrderIndex = q.OrderIndex,
-                        CreatedAt = DateTime.UtcNow
-                    }).ToList();
-
-                    await _unitOfWork.Repository<Question>().AddRangeAsync(newQuestions);
+                        _unitOfWork.Repository<Question>().Delete(removedQuestion);
+                    }
                 }
-
-                await _unitOfWork.CompleteAsync();
-                return NoContent();
             }
 
-            //الدكتور يغير Status الامتحان
-            [HttpPatch("{id}/status")]
-            [Authorize(Roles = "Instructor")]
-            public async Task<IActionResult> ChangeStatus(int id, [FromBody] string status)
+            await _unitOfWork.CompleteAsync();
+            return NoContent();
+        }
+
+        // الدكتور يغير Status الامتحان
+        [HttpPatch("{id}/status")]
+        [Authorize(Roles = "Instructor")]
+        public async Task<IActionResult> ChangeStatus(int id, [FromBody] string status)
+        {
+            var validStatuses = new[] { "Active", "Inactive", "Draft" };
+            if (!validStatuses.Contains(status))
+                return BadRequest("Status must be Active, Inactive, or Draft");
+
+            var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
+            if (exam == null) return NotFound();
+
+            // تأكد إن الدكتور ده هو صاحب الامتحان
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim == null) return Unauthorized();
+
+            var userId = int.Parse(userIdClaim.Value);
+            var instructor = await _unitOfWork.Repository<Instructor>()
+                .FindOneAsync(i => i.UserId == userId);
+
+            if (instructor == null || exam.InstructorId != instructor.Id)
+                return Unauthorized("You don't own this exam");
+
+            exam.Status = status;
+            exam.UpdatedAt = DateTime.UtcNow;
+
+            _unitOfWork.Repository<Exam>().Update(exam);
+            await _unitOfWork.CompleteAsync();
+
+            return Ok(new
             {
-                var validStatuses = new[] { "Active", "Inactive", "Draft" };
-                if (!validStatuses.Contains(status))
-                    return BadRequest("Status must be Active, Inactive, or Draft");
-
-                var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
-                if (exam == null) return NotFound();
-
-                // تأكد إن الدكتور ده هو صاحب الامتحان
-                var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-                var userId = int.Parse(userIdClaim.Value);
-                var instructor = await _unitOfWork.Repository<Instructor>()
-                    .FindOneAsync(i => i.UserId == userId);
-
-                if (instructor == null || exam.InstructorId != instructor.Id)
-                    return Unauthorized("You don't own this exam");
-
-                exam.Status = status;
-                exam.UpdatedAt = DateTime.UtcNow;
-
-                _unitOfWork.Repository<Exam>().Update(exam);
-                await _unitOfWork.CompleteAsync();
-
-                return Ok(new { Message = $"Exam status changed to {status}", ExamId = id });
-            }
-
-
-        //[HttpGet("{id}")]
-        //public async Task<IActionResult> GetById(int id)
-        //{
-        //    var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
-        //    if (exam == null) return NotFound();
-        //    return Ok(exam);
-        //}
-
+                Message = $"Exam status changed to {status}",
+                ExamId = id,
+                exam.ActiveFrom,
+                exam.ActiveTo,
+                IsCurrentlyAvailable = exam.Status == "Active" && IsInsideAvailabilityWindow(exam)
+            });
+        }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
-            // 1. جلب الامتحان مع الأسئلة، المدرس، والسيشنز (بدون الطلاب لأن الـ Include مش واصلالهم)
+
+            //var sessionIdHeader = Request.Headers["Session-Id"].FirstOrDefault();
+
+            //if (string.IsNullOrEmpty(sessionIdHeader))
+            //{
+            //    return Unauthorized("Session ID is required");
+            //}
+
+            //if (!int.TryParse(sessionIdHeader, out int sessionId))
+            //{
+            //    return Unauthorized("Invalid Session ID");
+            //}
+
+            //var examsession = await _unitOfWork.Repository<ExamSession>()
+            //    .FindOneAsync(s => s.Id == sessionId && s.ExamId == id);
+
+            //if (examsession == null)
+            //{
+            //    return Unauthorized("Invalid exam session");
+            //}
+
             var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(
                 id,
                 e => e.Questions,
@@ -288,14 +451,12 @@
 
             if (exam == null) return NotFound();
 
-            // 2. مصفوفة (List) عشان نجمع فيها بيانات كل سيشن مع طالبها
             var sessionsWithStudents = new List<object>();
 
             if (exam.Sessions != null)
             {
                 foreach (var session in exam.Sessions)
                 {
-                    // بنروح نجيب الطالب واليوزر بتاعه لكل سيشن بشكل منفصل
                     var student = await _unitOfWork.Repository<Student>()
                         .FindOneAsync(s => s.Id == session.StudentId, s => s.User);
 
@@ -305,20 +466,18 @@
                         session.Status,
                         session.StartTime,
                         session.EndTime,
-                        // بيانات الطالب
                         StudentInfo = new
                         {
                             Id = student?.Id,
                             UniversityId = student?.StudentUniversityID,
                             FullName = student?.User != null
-                                ? $"{student.User.FullName}"
+                                ? student.User.FullName
                                 : "Unknown"
                         }
                     });
                 }
             }
 
-            // 3. بناء الـ Result النهائي اللي فيه "كل حاجة"
             var result = new
             {
                 exam.Id,
@@ -329,15 +488,17 @@
                 exam.University,
                 exam.Level,
                 exam.DurationMinutes,
+                exam.ActiveFrom,
+                exam.ActiveTo,
                 exam.Status,
+                IsCurrentlyAvailable = exam.Status == "Active" && IsInsideAvailabilityWindow(exam),
                 Instructor = new
                 {
                     Id = exam.InstructorId,
                     Name = exam.Instructor?.User != null
-                        ? $"{exam.Instructor.User.FullName}"
+                        ? exam.Instructor.User.FullName
                         : "Unknown"
                 },
-                // عرض كل الأسئلة
                 Questions = exam.Questions.Select(q => new
                 {
                     q.Id,
@@ -346,73 +507,44 @@
                     q.OptionB,
                     q.OptionC,
                     q.OptionD,
-                    q.CorrectAnswer,
+                    //q.CorrectAnswer,
                     q.OrderIndex
                 }),
-                // عرض كل الطلاب اللي في السيشينز (اللي جهزناهم فوق)
                 Sessions = sessionsWithStudents
             };
 
-            // 4. أهم خطوة: ترجع الـ result اللي فيه كل الداتا
             return Ok(result);
         }
 
-
-
         // الدكتور يمسح امتحان
         [HttpDelete("{id}")]
-            [Authorize(Roles = "Instructor")]
-            public async Task<IActionResult> Delete(int id)
+        [Authorize(Roles = "Instructor")]
+        public async Task<IActionResult> Delete(int id)
+        {
+            var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
+            if (exam == null) return NotFound();
+
+            _unitOfWork.Repository<Exam>().Delete(exam);
+            await _unitOfWork.CompleteAsync();
+
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim == null) return Unauthorized();
+
+            var userId = int.Parse(userIdClaim.Value);
+
+            var auditLog = new AuditLog
             {
-                var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
-                if (exam == null) return NotFound();
+                UserId = userId,
+                Action = "DeleteExam",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                Details = $"Exam '{exam.Code}' deleted",
+                Timestamp = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _unitOfWork.Repository<AuditLog>().AddAsync(auditLog);
+            await _unitOfWork.CompleteAsync();
 
-                _unitOfWork.Repository<Exam>().Delete(exam);
-                await _unitOfWork.CompleteAsync();
-
-                return NoContent();
-            }
-
-
-
-            // Endpoint لترجيع الطلاب المسجلين في امتحان معين فقط
-            //[HttpGet("{id}/enrolled-students")]
-            //public async Task<IActionResult> GetEnrolledStudents(int id)
-            //{
-            //   // 1. تأكد إن الامتحان موجود أصلاً
-            //   var exam = await _unitOfWork.Repository<Exam>().GetByIdAsync(id);
-            //   if (exam == null) return NotFound("Exam not found");
-
-            //   // 2. هنجيب كل الـ Enrollments الخاصة بالامتحان ده
-            //   // وبما إننا محتاجين بيانات الطالب، هنستخدم الـ FindAsync مع التصفية
-            //    var enrollments = await _unitOfWork.Repository<Enrollment>()
-            //                                       .FindAsync(e => e.ExamId == id);
-
-            //    var studentIds = enrollments.Select(e => e.StudentId).ToList();
-
-            //    // 3. هنجيب بيانات الطلاب بناءً على الـ IDs اللي طلعناها
-            //    var studentsResult = new List<object>();
-
-            //    foreach (var studentId in studentIds)
-            //    {
-            //       var student = await _unitOfWork.Repository<Student>().GetByIdAsync(studentId);
-            //       if (student != null)
-            //       {
-            //         studentsResult.Add(new
-            //         {
-            //            student.Id,
-            //            student.StudentUniversityID, // الرقم اللي الفرونت إند بيعمل عليه Validation
-            //            student.Department,
-            //            student.Level
-            //         });
-            //       }
-            //    }
-
-            //    return Ok(studentsResult);
-            //}
-
-
-
-
+            return NoContent();
         }
     }
+}
